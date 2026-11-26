@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/logo.png" alt="Quite Safe Grab" width="140"></p>
+
 # Quite Safe Grab
 
 **Videos sichern. Nur, wenn dein VPN wirklich schützt.**
@@ -69,10 +71,11 @@ Du siehst jetzt ein schwarzes Fenster. Es lädt zwei Hilfsprogramme und zeigt da
 
 ### 5. Zwei Fragen beantworten
 
-Das Fenster fragt nach deinem **Heimatland** und dem **Ordner für deine Videos**. Drücke jeweils **Enter**, um den Vorschlag zu übernehmen.
-Danach fragt es, ob es den Schutz einrichten soll: Tippe **j** und Enter. Windows fragt nach Erlaubnis – klicke **Ja**, im neuen Fenster am Ende **Enter**.
+Das Fenster fragt nach deinem **Heimatland** und dem **Ordner für deine Videos**. Drücke jeweils **Enter**, um den Vorschlag zu übernehmen. Proton VPN und den Browser erkennt es von selbst.
 
-Du siehst jetzt **„Fertig – Quite Safe Grab ist eingerichtet.“** und eine Verknüpfung auf deinem Desktop.
+Danach richtet es den **Schutz** ein – eine Regel in der Windows-Firewall, die das Programm nur durch das VPN ins Internet lässt. Drücke **Enter**. Windows fragt nach Erlaubnis: Klicke **Ja**. Ein zweites Fenster öffnet sich, arbeitet einige Sekunden, zeigt **FERTIG** und schließt sich von selbst – bitte dort nichts drücken.
+
+Du siehst jetzt **„Fertig – Quite Safe Grab ist eingerichtet.“** und auf Wunsch eine Verknüpfung mit dem Logo auf deinem Desktop.
 
 <br>
 
@@ -81,18 +84,21 @@ Du siehst jetzt **„Fertig – Quite Safe Grab ist eingerichtet.“** und eine 
 **1. Verbinde Proton VPN.**
 
 **2. Doppelklicke auf dem Desktop auf „Quite Safe Grab“.**
-Es öffnet sich ein Browserfenster. Nach einigen Sekunden steht oben rechts **„Geschützt“**.
+Es öffnet sich ein Browserfenster. Das Programm prüft kurz deine Verbindung – nach etwa 20 Sekunden steht oben rechts **„Geschützt“**.
 
 ![Start](docs/start.png)
 
 **3. Füge Links ein und klicke auf „Start“.**
-Ein Link pro Zeile → **Zur Warteschlange**. Die Titel erscheinen von selbst. Dann **Start**.
+Ein Link pro Zeile → **Zur Warteschlange**. Die Titel erscheinen von selbst in der Liste. Dann **Start**.
+Vor jedem Video prüft das Programm erneut die Verbindung – ein kleines Symbol zeigt, dass es arbeitet. Danach siehst du Fortschritt, Geschwindigkeit und Restzeit.
 
 ![Warteschlange](docs/warteschlange.png)
 
 **4. Fertig.** Deine Videos liegen im Ordner aus Schritt 5 – ein Klick auf **Ordner öffnen** bringt dich hin.
 
 Das schwarze Fenster bleibt offen, solange du das Programm benutzt. Schließt du das Browserfenster, beendet sich alles von selbst.
+
+**Aktualisieren:** Starte **`Einrichten.cmd`** noch einmal. Es sucht eine neue Version und spielt sie ein – deine Einstellungen und Videos bleiben erhalten.
 
 <br>
 
@@ -102,7 +108,7 @@ Das schwarze Fenster bleibt offen, solange du das Programm benutzt. Schließt du
 Dein VPN ist nicht verbunden oder gerade unterbrochen. Verbinde Proton VPN und klicke auf **Jetzt prüfen**.
 
 **Beim Start erscheint „Netzsperre fehlt“ oder ein Download bricht sofort ab.**
-Der Schutz passt nicht mehr, zum Beispiel nach einem Wechsel in Proton. Verbinde Proton VPN und starte **`Einrichten.cmd`** noch einmal – es repariert das.
+Der Schutz passt nicht mehr – zum Beispiel, weil du den Ordner verschoben hast oder sich in Proton etwas geändert hat. Verbinde Proton VPN und starte **`Einrichten.cmd`** noch einmal – es repariert das.
 
 **Ein Link zeigt „Fehler“ statt eines Titels.**
 Das Video gibt es nicht mehr, oder die Seite hat ihre Adresse geändert. Prüfe den Link im Browser. Klappt er dort, schreib uns – siehe Kontakt.
@@ -113,4 +119,4 @@ Weitere Details für Fortgeschrittene: [docs/TECHNIK.md](docs/TECHNIK.md)
 
 ## Lizenz und Kontakt
 
-GPL-3.0 – siehe [LICENSE](LICENSE). Fragen und Fehler: [Kontakt, z. B. Link zu den GitHub Issues oder E-Mail]
+GPL-3.0 – siehe [LICENSE](LICENSE). Fragen und Fehler: [GitHub Issues](../../issues)

@@ -24,8 +24,8 @@ Der Download läuft **nur, wenn dein VPN nachweislich aktiv ist**. Vor jedem Sch
 2. **VPN verbinden** (Kill-Switch im VPN-Client einschalten wird empfohlen).
 3. **Doppelklick auf `Einrichten.cmd`.** Die Einrichtung
    - lädt eine eigene Python-Laufzeit (`python\`, ca. 10 MB) und FFmpeg (`tools\`, ca. 114 MB) – nur von fest eingetragenen Adressen (python.org, GitHub/gyan.dev), jede Datei per SHA256 geprüft; ein vorhandenes Python wird weder benutzt noch verändert,
-   - fragt dein **Heimatland** (Vorschlag aus den Windows-Regionseinstellungen), deinen **Internetanbieter** (Vorgaben für DE/AT/CH), dein **VPN** (Proton oder Auswahl des Adapters), den **Browser** für die Oberfläche und den **Speicherort** ab und schreibt daraus `config.toml`,
-   - legt auf Wunsch die **Netzsperre** an (Windows fragt einmal nach Administratorrechten: „Ja“, im neuen Fenster am Ende Enter) und eine **Desktop-Verknüpfung**,
+   - fragt nur zwei Dinge: dein **Heimatland** (Vorschlag aus den Windows-Regionseinstellungen) und den **Speicherort**. Proton VPN erkennt sie selbst (sonst Auswahl des VPN-Adapters), den Browser wählt sie automatisch (Mullvad, sonst Edge), Internetanbieter kommen aus einer Ländervorgabe (DE/AT/CH; die Heimatland-Prüfung trägt den Schutz). Daraus entsteht `config.toml`,
+   - legt auf Wunsch die **Netzsperre** an (Windows fragt einmal nach Administratorrechten: „Ja“; das zweite Fenster zeigt FERTIG und schließt sich selbst) und eine **Desktop-Verknüpfung** mit Logo,
    - sagt am Ende, welche Datei du startest.
 
 Die Einrichtung kann **jederzeit erneut** gestartet werden: Sie erkennt die fertige Einrichtung, fragt nichts erneut (außer du möchtest Einstellungen ändern), sucht auf Wunsch eine **neue Version auf GitHub** und spielt sie ein, erneuert Python, FFmpeg und Abhängigkeiten nur bei Bedarf und prüft die Netzsperre.
