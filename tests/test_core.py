@@ -437,6 +437,13 @@ class TestCore(unittest.TestCase):
         self.assertEqual(result['url'], 'https://cdn.example/film.mp4')
         self.assertEqual(opened, ['https://voe.sx/abc', 'https://caseyseemavoid.com/e/abc'])
 
+    def test_complete_url_adds_https_only_to_bare_hosts(self):
+        self.assertEqual(g.complete_url(' freiefilme.de/redirect/3573819 '), 'https://freiefilme.de/redirect/3573819')
+        self.assertEqual(g.complete_url('caseyseemavoid.com/abc'), 'https://caseyseemavoid.com/abc')
+        self.assertEqual(g.complete_url('http://x.example/a'), 'http://x.example/a')
+        for text in ('fertig', 'javascript:alert(1)', 'file:///C:/x', '/pfad/allein', 'ftp://x.example/a'):
+            self.assertFalse(g.complete_url(text).startswith('https://'), text)
+
     def test_voe_without_e_on_configured_host(self):
         self.assertTrue(g.is_voe('https://voe.sx/abc123', ['voe.sx']))
         self.assertFalse(g.is_voe('https://mediathek.example/abc123', ['voe.sx']))

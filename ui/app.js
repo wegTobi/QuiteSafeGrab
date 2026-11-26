@@ -52,11 +52,11 @@ let clockSkew = 0;   // Serverzeit - Browserzeit (Sekunden)
 const pad = (n) => String(n).padStart(2, '0');
 function serverNow() { return Date.now() / 1000 + clockSkew; }
 
-function clock(t) {
+function clock(t, seconds = true) {
   if (!t) return '–';
   const d = new Date((t + tzOffset) * 1000);
   const today = new Date((serverNow() + tzOffset) * 1000);
-  const time = pad(d.getUTCHours()) + ':' + pad(d.getUTCMinutes()) + ':' + pad(d.getUTCSeconds());
+  const time = pad(d.getUTCHours()) + ':' + pad(d.getUTCMinutes()) + (seconds ? ':' + pad(d.getUTCSeconds()) : '');
   const sameDay = d.getUTCFullYear() === today.getUTCFullYear() && d.getUTCMonth() === today.getUTCMonth() && d.getUTCDate() === today.getUTCDate();
   return sameDay ? time : pad(d.getUTCDate()) + '.' + pad(d.getUTCMonth() + 1) + '.' + d.getUTCFullYear() + ' ' + time;
 }
@@ -70,12 +70,12 @@ function ago(t) {
   return 'vor ' + Math.round(s / 86400) + ' Tagen';
 }
 
-function bytes(n) {
+function bytes(n, decimals = 1) {
   if (n === null || n === undefined) return '';
   const u = ['B', 'KB', 'MB', 'GB', 'TB'];
   let i = 0;
   while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
-  return n.toFixed(i ? 1 : 0).replace('.', ',') + ' ' + u[i];
+  return n.toFixed(i ? decimals : 0).replace('.', ',') + ' ' + u[i];
 }
 
 function unit(s) {
@@ -256,8 +256,9 @@ function renderHistory(st) {
   for (const f of st.history) {
     const li = el('li');
     const main = el('div', 'item-main');
-    main.append(el('div', 'item-title', f.name), el('div', 'item-sub', clock(f.time)));
-    li.append(main, el('span', 'tag', bytes(f.size)));
+    // Fertige Videos bewusst schlicht: kleiner, nicht fett, Uhrzeit ohne Sekunden, Größe ohne Nachkommastelle
+    main.append(el('div', 'item-title', f.name), el('div', 'item-sub', clock(f.time, false)));
+    li.append(main, el('span', 'tag', bytes(f.size, 0)));
     ul.append(li);
   }
   $('btn-folder').title = st.storage_finished;

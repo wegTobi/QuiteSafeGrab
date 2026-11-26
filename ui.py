@@ -480,7 +480,7 @@ def make_handler(state, token, port_holder):
                     raise ValueError('Warteschlange ist voll.')
                 bad, added = [], 0
                 for u in urls:
-                    u = u.strip() if isinstance(u, str) else ''
+                    u = g.complete_url(u) if isinstance(u, str) else ''
                     if not u:
                         continue
                     try:

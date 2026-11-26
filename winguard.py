@@ -49,6 +49,11 @@ $profiles = @(Get-NetFirewallProfile | ForEach-Object { [pscustomobject]@{ Name 
 [pscustomobject]@{ Adapters = $adapters; Rules = $rules; Profiles = $profiles; RulesError = $rulesError } | ConvertTo-Json -Compress -Depth 6
 """
 
+# Schnelle Abfrage (~2 s statt ~13 s): nur Adapter und ihre IPv4-Adressen, ohne Firewallregeln.
+# Wird nur benutzt, nachdem in DIESEM Lauf die volle Pruefung (Regeln + Selbsttest) bestanden ist.
+QUICK_STATE_SCRIPT = (STATE_SCRIPT.split('$rules = @()')[0]
+                      + "[pscustomobject]@{ Adapters = $adapters } | ConvertTo-Json -Compress -Depth 6\n")
+
 # Laeuft im geschuetzten Python: von jeder NICHT-VPN-Adresse aus muss connect() sofort an der Firewall scheitern.
 # 192.0.2.1 (TEST-NET-1, RFC 5737) ist nirgends routbar; es wird kein Dritter kontaktiert.
 # Als sicher gelten nur: BLOCKED (10013, Firewall), NOADDR (10049, Adresse nicht als Absender nutzbar)

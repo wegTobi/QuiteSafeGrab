@@ -408,6 +408,21 @@ class Store:
 
 _guard_warned = set()
 _selftest_done = set()
+_rules_ok = set()   # volle Pruefung (Regeln + Selbsttest) in diesem Lauf bestanden, je guard_key
+
+
+def guard_key(state, patterns, vpn_ips, programs):
+    return (tuple(vpn_ips), tuple(winguard.other_ipv4(state, patterns)), tuple(programs))
+
+
+def query_state(runner, script):
+    r = runner.run([POWERSHELL] + winguard.powershell_args(script), timeout=60)
+    if r.code != 0 or r.timed_out:
+        fail(2, 'GUARD_QUERY_FAILED', 'Adapter-/Firewallabfrage fehlgeschlagen; kein ungeschuetzter Fallback.')
+    try:
+        return winguard.parse_state(r.out)
+    except ValueError as exc:
+        fail(2, 'GUARD_QUERY_INVALID', f'{exc}; kein ungeschuetzter Fallback.')
 
 
 def guard_programs():
@@ -440,13 +455,18 @@ def ensure_guard(runner, config=None):
     if not patterns:
         warn_once('patterns', 'WARNUNG: vpn_adapter_patterns ist leer - keine Adapter- und keine Firewallpruefung. Kill-Switch des VPN-Clients muss allein schuetzen.')
         return
-    r = runner.run([POWERSHELL] + winguard.powershell_args(winguard.STATE_SCRIPT), timeout=60)
-    if r.code != 0 or r.timed_out:
-        fail(2, 'GUARD_QUERY_FAILED', 'Adapter-/Firewallabfrage fehlgeschlagen; kein ungeschuetzter Fallback.')
-    try:
-        state = winguard.parse_state(r.out)
-    except ValueError as exc:
-        fail(2, 'GUARD_QUERY_INVALID', f'{exc}; kein ungeschuetzter Fallback.')
+    programs = guard_programs()
+    if enforce and _rules_ok:
+        # Regeln und Selbsttest sind in diesem Lauf schon bestanden: nur noch die schnelle Adapterabfrage.
+        # Hat sich irgendetwas geaendert (VPN-Adresse, andere Adressen, Programme), folgt die volle Pruefung.
+        state = query_state(runner, winguard.QUICK_STATE_SCRIPT)
+        vpn = winguard.vpn_adapters(state, patterns)
+        vpn_ips = winguard.vpn_ipv4(vpn)
+        if vpn and guard_key(state, patterns, vpn_ips, programs) in _rules_ok:
+            emit('check', key='vpn', ok=True, detail=', '.join(a['name'] for a in vpn) + ' · ' + ', '.join(vpn_ips))
+            emit('check', key='firewall', ok=True, detail=f'{len(programs)} Programme gesperrt ausser ueber das VPN')
+            return
+    state = query_state(runner, winguard.STATE_SCRIPT)
     vpn = winguard.vpn_adapters(state, patterns)
     if not vpn:
         emit('check', key='vpn', ok=False, detail='Kein aktiver VPN-Adapter')
@@ -460,7 +480,6 @@ def ensure_guard(runner, config=None):
     if not vpn_ips:
         emit('check', key='firewall', ok=False, detail='VPN-Adapter ohne IPv4-Adresse')
         fail(2, 'VPN_IP_MISSING', 'Der VPN-Adapter hat keine nutzbare IPv4-Adresse.')
-    programs = guard_programs()
     problem = winguard.check_rules(state, programs, vpn_ips)
     if problem:
         emit('check', key='firewall', ok=False, detail=problem[1])
@@ -481,6 +500,7 @@ def ensure_guard(runner, config=None):
             print('Netzsperre: Selbsttest uebersprungen (keine weitere lokale IPv4-Adresse neben dem VPN).')
             emit('check', key='selftest', ok=True, detail='Keine weitere lokale Adresse zu pruefen')
         _selftest_done.add(key)
+    _rules_ok.add(guard_key(state, patterns, vpn_ips, programs))
 
 
 def parse_status(data, source, version=4):
@@ -657,6 +677,14 @@ def ydl_common(referer):
 def origin(url):
     p = urllib.parse.urlsplit(valid_url(url))
     return f'{p.scheme}://{p.netloc}/'
+
+
+def complete_url(text):
+    """Links ohne Schema (z. B. aus Scraping-Tools: "seite.de/redirect/123") bekommen https:// davor."""
+    text = text.strip()
+    if not re.match(r'[A-Za-z][A-Za-z0-9+.-]*://', text) and re.match(r'(?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,}(?::\d+)?(?:[/?#]|$)', text):
+        return 'https://' + text
+    return text
 
 
 def is_voe(url, hosts=()):
@@ -1014,6 +1042,7 @@ def interactive(config, runner, net, store, manual=None):
         if not line or line.casefold() in ('fertig', 'ende'):
             break
         try:
+            line = complete_url(line)
             valid_url(line)
             urls.append(line)
         except ValueError:
@@ -1095,6 +1124,7 @@ def main(argv=None):
                 fail(1, 'INPUT_CONFLICT', '--preview liest die Links von der Standardeingabe.')
             return preview(config, runner, net, store, read_preview_urls(sys.stdin))
         if args.url:
+            args.url = complete_url(args.url)
             try:
                 valid_url(args.url)
             except ValueError:

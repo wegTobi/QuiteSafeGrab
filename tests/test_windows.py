@@ -215,7 +215,7 @@ class FakeRunner:
 class TestGuard(unittest.TestCase):
     def guard(self, runner, config=CONFIG, platform='win32'):
         with patch.object(g.sys, 'platform', platform), patch.object(g, 'guard_programs', return_value=PROGRAMS), \
-             patch.object(g, '_selftest_done', set()), patch.object(g, '_guard_warned', set()), contextlib.redirect_stdout(io.StringIO()) as out:
+             patch.object(g, '_selftest_done', set()), patch.object(g, '_rules_ok', set()), patch.object(g, '_guard_warned', set()), contextlib.redirect_stdout(io.StringIO()) as out:
             g.ensure_guard(runner, config)
         return out.getvalue()
 
@@ -235,10 +235,36 @@ class TestGuard(unittest.TestCase):
     def test_selftest_runs_once_per_vpn_address(self):
         runner = FakeRunner(state_json())
         with patch.object(g.sys, 'platform', 'win32'), patch.object(g, 'guard_programs', return_value=PROGRAMS), \
-             patch.object(g, '_selftest_done', set()), contextlib.redirect_stdout(io.StringIO()):
+             patch.object(g, '_selftest_done', set()), patch.object(g, '_rules_ok', set()), contextlib.redirect_stdout(io.StringIO()):
             g.ensure_guard(runner, CONFIG)
             g.ensure_guard(runner, CONFIG)
         self.assertEqual(len(runner.calls), 3)  # 2 Abfragen + 1 Selbsttest
+
+    def test_quick_check_after_full_pass_and_full_again_on_change(self):
+        import base64
+        quick = winguard.powershell_args(winguard.QUICK_STATE_SCRIPT)[-1]
+        self.assertNotIn('Get-NetFirewallRule', winguard.QUICK_STATE_SCRIPT)
+        scripts = []
+
+        class Runner(FakeRunner):
+            def run(inner, argv, **kw):
+                if argv[0] == g.POWERSHELL:
+                    scripts.append('quick' if argv[-1] == quick else 'full')
+                return super().run(argv, **kw)
+
+        runner = Runner(state_json())
+        with patch.object(g.sys, 'platform', 'win32'), patch.object(g, 'guard_programs', return_value=PROGRAMS), \
+             patch.object(g, '_selftest_done', set()), patch.object(g, '_rules_ok', set()), contextlib.redirect_stdout(io.StringIO()):
+            g.ensure_guard(runner, CONFIG)
+            g.ensure_guard(runner, CONFIG)
+            self.assertEqual(scripts, ['full', 'quick'])
+            runner.query = state_json(ad=adapters(vpn='10.2.0.9'), rules=good_rules(vpn='10.2.0.9'))   # neue VPN-Adresse
+            g.ensure_guard(runner, CONFIG)
+            self.assertEqual(scripts, ['full', 'quick', 'quick', 'full'])
+            runner.query = state_json(ad=adapters(vpn=None))   # VPN weg -> volle Pruefung meldet den Fehler
+            with self.assertRaises(g.Failure) as caught:
+                g.ensure_guard(runner, CONFIG)
+            self.assertEqual(caught.exception.ident, 'VPN_ADAPTER_MISSING')
 
     def test_open_firewall_in_selftest_stops(self):
         for line in ('SELFTEST {ip} OPEN:10060', 'SELFTEST {ip} OPEN:connected', ''):
