@@ -54,15 +54,28 @@ $appVersion = (Get-Content -LiteralPath (Join-Path $app 'VERSION') -TotalCount 1
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
 # ---------------------------------------------------------------- Hilfsfunktionen
-function Step([string]$text) { Write-Host ''; Write-Host "== $text" -ForegroundColor White }
-function Info([string]$text) { Write-Host "   $text" }
-function Good([string]$text) { Write-Host "   $text" -ForegroundColor Green }
+# Farben: alles grau, Eingaben grün, Warnungen gelb.
+function Step([string]$text) { Write-Host ''; Write-Host "== $text" -ForegroundColor Gray }
+function Info([string]$text) { Write-Host "   $text" -ForegroundColor Gray }
+function Good([string]$text) { Write-Host "   $text" -ForegroundColor Gray }
 function Warn([string]$text) { Write-Host "   $text" -ForegroundColor Yellow }
+function Question([string]$number, [string]$title, [string[]]$explain) {
+  # Eine Frage als eigener, abgesetzter Block.
+  Write-Host ''
+  Write-Host "   ----------------------------------------------------------------" -ForegroundColor DarkGray
+  Write-Host "   $number  $title" -ForegroundColor Gray
+  foreach ($line in $explain) { Write-Host "       $line" -ForegroundColor DarkGray }
+  Write-Host ''
+}
+function Read-Green([string]$prompt) {
+  Write-Host "   $prompt" -ForegroundColor Green -NoNewline
+  return [string](Read-Host)
+}
 
 function Ask([string]$question, [string]$default = '') {
   if ($Defaults) { return $default }
   $suffix = if ($default) { " [$default]" } else { '' }
-  $answer = Read-Host "   $question$suffix"
+  $answer = Read-Green "$question$suffix`: "
   if ([string]::IsNullOrWhiteSpace($answer)) { return $default }
   return $answer.Trim()
 }
@@ -71,24 +84,67 @@ function AskYesNo([string]$question, [bool]$default = $true) {
   if ($Defaults) { return $default }
   $hint = if ($default) { 'J/n' } else { 'j/N' }
   while ($true) {
-    $a = (Read-Host "   $question ($hint)").Trim().ToLowerInvariant()
+    $a = (Read-Green "$question ($hint): ").Trim().ToLowerInvariant()
     if (-not $a) { return $default }
     if ($a -in 'j', 'ja', 'y', 'yes') { return $true }
     if ($a -in 'n', 'nein', 'no') { return $false }
-    Write-Host '   Bitte j oder n eingeben.'
+    Info 'Bitte j oder n eingeben.'
   }
 }
 
 function Choose([string]$question, [string[]]$options, [int]$default = 1) {
   if ($Defaults) { return $default }
-  for ($i = 0; $i -lt $options.Count; $i++) { Write-Host ("     {0}) {1}" -f ($i + 1), $options[$i]) }
+  for ($i = 0; $i -lt $options.Count; $i++) { Write-Host ("     {0}) {1}" -f ($i + 1), $options[$i]) -ForegroundColor Green }
   while ($true) {
-    $a = Read-Host "   $question [$default]"
+    $a = Read-Green "$question [$default]: "
     if (-not $a) { return $default }
     $n = 0
     if ([int]::TryParse($a, [ref]$n) -and $n -ge 1 -and $n -le $options.Count) { return $n }
-    Write-Host "   Bitte eine Zahl von 1 bis $($options.Count) eingeben."
+    Info "Bitte eine Zahl von 1 bis $($options.Count) eingeben."
   }
+}
+
+function Save-Download([string]$url, [string]$target, [string]$what) {
+  # Download mit Fortschrittsanzeige (Prozent, MB, Geschwindigkeit) in einer Zeile.
+  $request = [Net.HttpWebRequest]::Create($url)
+  $request.UserAgent = 'QuiteSafeGrab-Setup'
+  $request.AllowAutoRedirect = $true
+  $request.Timeout = 30000
+  $request.ReadWriteTimeout = 60000
+  $response = $request.GetResponse()
+  try {
+    $total = $response.ContentLength
+    $in = $response.GetResponseStream()
+    $out = [IO.File]::Create($target)
+    try {
+      $buffer = New-Object byte[] 262144
+      $done = 0L
+      $watch = [Diagnostics.Stopwatch]::StartNew()
+      $lastDraw = -1000
+      $spin = '|/-\'
+      $tick = 0
+      while (($n = $in.Read($buffer, 0, $buffer.Length)) -gt 0) {
+        $out.Write($buffer, 0, $n)
+        $done += $n
+        if ($watch.ElapsedMilliseconds - $lastDraw -ge 200) {
+          $lastDraw = $watch.ElapsedMilliseconds
+          $mb = $done / 1MB
+          $speed = if ($watch.Elapsed.TotalSeconds -gt 0) { $mb / $watch.Elapsed.TotalSeconds } else { 0 }
+          if ($total -gt 0) {
+            $pct = [Math]::Min(100, [int]($done * 100 / $total))
+            $bar = ('#' * [int]($pct / 4)).PadRight(25, '.')
+            $line = "   [$bar] {0,3} %  {1:N1} / {2:N1} MB  ({3:N1} MB/s)" -f $pct, $mb, ($total / 1MB), $speed
+          } else {
+            $tick++
+            $line = "   [{0}] {1:N1} MB geladen  ({2:N1} MB/s)" -f $spin[$tick % 4], $mb, $speed
+          }
+          Write-Host ("`r" + $line.PadRight(72)) -NoNewline -ForegroundColor Gray
+        }
+      }
+      $line = "   [{0}] 100 %  {1:N1} MB in {2:N0} s" -f ('#' * 25), ($done / 1MB), $watch.Elapsed.TotalSeconds
+      Write-Host ("`r" + $line.PadRight(72)) -ForegroundColor Gray
+    } finally { $out.Dispose(); $in.Dispose() }
+  } finally { $response.Close() }
 }
 
 function Get-Sha256([string]$path) { (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() }
@@ -108,8 +164,8 @@ function Get-Verified([string]$url, [string]$sha, [string]$given, [string]$what)
   if (-not (Test-Path -LiteralPath $dlDir)) { New-Item -ItemType Directory -Path $dlDir | Out-Null }
   $part = "$path.part"
   if (Test-Path -LiteralPath $part) { Remove-Item -LiteralPath $part -Force }
-  Info "Lade $what von $url ..."
-  Invoke-WebRequest -Uri $url -OutFile $part -UseBasicParsing -MaximumRedirection 5
+  Info "Lade $what von $url"
+  Save-Download $url $part $what
   $actual = Get-Sha256 $part
   if ($actual -ne $sha) {
     Remove-Item -LiteralPath $part -Force
@@ -167,7 +223,7 @@ function Get-VpnStatus {
 
 # ---------------------------------------------------------------- 1. Rechner und Stand
 Write-Host ''
-Write-Host "Quite Safe Grab $appVersion – Einrichtung" -ForegroundColor White
+Write-Host "Quite Safe Grab $appVersion – Einrichtung" -ForegroundColor Gray
 Write-Host '„Quite safe“: ziemlich sicher – aber ehrlich nie hundertprozentig.'
 
 Step 'Rechner prüfen'
@@ -205,9 +261,9 @@ if ($installed -and -not $AfterUpdate -and -not $NoUpdateCheck -and -not $Offlin
           if (-not (Test-Path -LiteralPath $dlDir)) { New-Item -ItemType Directory -Path $dlDir | Out-Null }
           $zipPath = Join-Path $dlDir $zipAsset.name
           $shaPath = "$zipPath.sha256"
-          Info "Lade $($zipAsset.name) ..."
-          Invoke-WebRequest -Uri $zipAsset.browser_download_url -OutFile $zipPath -UseBasicParsing -MaximumRedirection 5
-          Invoke-WebRequest -Uri $shaAsset.browser_download_url -OutFile $shaPath -UseBasicParsing -MaximumRedirection 5
+          Info "Lade $($zipAsset.name)"
+          Save-Download $zipAsset.browser_download_url $zipPath 'Update'
+          Save-Download $shaAsset.browser_download_url $shaPath 'Prüfsumme'
           $expected = ((Get-Content -LiteralPath $shaPath -TotalCount 1) -split '\s+')[0].ToLowerInvariant()
           if ($expected -notmatch '^[0-9a-f]{64}$' -or (Get-Sha256 $zipPath) -ne $expected) { throw 'Prüfsumme des Updates stimmt nicht – nichts geändert.' }
           $stage = Join-Path $app 'update.new'
@@ -331,84 +387,50 @@ $askSettings = -not (Test-Path -LiteralPath $cfgFile) -or $Reconfigure
 if (-not $askSettings) {
   if (Test-Config) {
     Good 'config.toml vorhanden und gültig.'
-    $askSettings = AskYesNo 'Einstellungen ändern (Land, Internetanbieter, VPN, Browser, Speicherort)?' $false
+    $askSettings = AskYesNo 'Einstellungen ändern (Heimatland, Speicherort, VPN)?' $false
   } else {
     Warn 'config.toml ist ungültig oder unvollständig (z. B. nach einem Update) – bitte neu abfragen.'
     $askSettings = $true
   }
 }
 if ($askSettings) {
-  $template = [IO.File]::ReadAllText((Join-Path $app 'config.default.toml'))
-  $text = $template
+  $text = [IO.File]::ReadAllText((Join-Path $app 'config.default.toml'))
 
-  # -- Land (Vorschlag aus den Windows-Regionseinstellungen)
+  # -- Frage 1: Heimatland (Vorschlag aus den Windows-Regionseinstellungen)
   $region = [Globalization.RegionInfo]::CurrentRegion
-  Info "Dein Heimatland: Taucht es bei einer Prüfung auf, läuft der Verkehr nicht über das VPN -> Abbruch."
+  Question '[1/2]' 'Heimatland' @(
+    'Zeigt eine Prüfung dieses Land an, läuft der Verkehr nicht über das VPN – dann wird abgebrochen.',
+    "Vorschlag aus deinen Windows-Einstellungen: $($region.TwoLetterISORegionName) ($($region.NativeName)). Enter übernimmt ihn.")
   while ($true) {
-    $cc = (Ask 'Heimatland als Zwei-Buchstaben-Kürzel (DE, AT, CH, ...)' $region.TwoLetterISORegionName).ToUpperInvariant()
-    try { $r = New-Object Globalization.RegionInfo $cc; if ($cc -match '^[A-Z]{2}$') { break } } catch { }
-    Write-Host '   Unbekanntes Kürzel. Beispiele: DE, AT, CH, NL, FR.'
+    $cc = (Ask 'Zwei-Buchstaben-Kürzel (z. B. DE, AT, CH)' $region.TwoLetterISORegionName).ToUpperInvariant()
+    $r = $null
+    if ($cc -match '^[A-Z]{2}$') { try { $r = New-Object Globalization.RegionInfo $cc } catch { $r = $null } }
+    if ($r) { break }
+    Info 'Unbekanntes Kürzel. Beispiele: DE, AT, CH, NL, FR.'
   }
   $names = @($r.EnglishName, $r.NativeName, $r.DisplayName) | Where-Object { $_ } | Select-Object -Unique
-  Good "Land: $cc ($($names -join ', '))"
+  Good "Heimatland: $cc ($($names -join ', '))"
   $text = Set-TomlKey $text 'home_country' (Toml-String $cc)
   $text = Set-TomlKey $text 'home_country_names' (Toml-List $names)
 
-  # -- Internetanbieter
+  # Internetanbieter: keine Frage. Zusatzsicherung mit bekannten Anbietern des Landes (DE/AT/CH);
+  # den eigentlichen Schutz trägt die Heimatland-Prüfung. Automatisch erkennen ginge nur über
+  # einen Geodienst mit der echten Adresse (ohne VPN) - das wäre ein Datenleck.
   $ispPresets = @{
     'DE' = @('Deutsche Telekom', 'Vodafone', '1&1', 'Telefónica', 'Unitymedia')
     'AT' = @('A1 Telekom', 'Magenta', 'Hutchison Drei', 'UPC')
     'CH' = @('Swisscom', 'Sunrise', 'Salt', 'UPC')
   }
-  $preset = if ($ispPresets.ContainsKey($cc)) { $ispPresets[$cc] } else { @() }
-  Info 'Internetanbieter, die nie als Ausgang erscheinen dürfen (dein eigener Anschluss).'
-  if ($preset) { Info "Vorgabe für ${cc}: $($preset -join ', ')" }
-  $extra = Ask 'Dein Anbieter, falls nicht dabei (mehrere mit Komma; leer = keiner)' ''
-  $isps = @($preset) + (Split-List $extra) | Select-Object -Unique
-  if (-not $isps) { $isps = @('Deutsche Telekom') ; Warn 'Kein Anbieter angegeben – die Heimatland-Prüfung schützt trotzdem.' }
+  $isps = if ($ispPresets.ContainsKey($cc)) { $ispPresets[$cc] } else { @() }
   $text = Set-TomlKey $text 'blocked_orgs' (Toml-List $isps)
 
-  # -- VPN
-  $vpnChoice = Choose 'Welches VPN nutzt du?' @('Proton VPN (Windows-App) – empfohlen, getestet', 'Ein anderes VPN mit eigenem Netzwerkadapter')
-  if ($vpnChoice -eq 1) {
-    $text = Set-TomlKey $text 'vpn_adapter_patterns' (Toml-List @('Proton', 'ProTUN'))
-    $text = Set-TomlKey $text 'allowed_patterns' (Toml-List @('Proton', 'M247', 'Datacamp', 'WorldStream'))
-    Good 'Proton VPN eingestellt.'
-  } else {
-    Info 'Bitte VPN jetzt verbinden. Aktive Netzwerkadapter:'
-    $adapters = @(Get-NetAdapter | Where-Object Status -eq 'Up' | Sort-Object Name)
-    $labels = @($adapters | ForEach-Object { "$($_.Name)  ($($_.InterfaceDescription))" })
-    if (-not $labels) { throw 'Keine aktiven Netzwerkadapter gefunden.' }
-    $pick = Choose 'Welcher davon ist das VPN?' $labels 1
-    $adapterName = $adapters[$pick - 1].Name
-    $provider = Ask 'Name deines VPN-Anbieters, wie er bei Prüfungen erscheint (z. B. Mullvad, NordVPN; mehrere mit Komma)' ''
-    if (-not $provider) { throw 'Ohne Anbieternamen kann die Ausgangsprüfung nicht arbeiten.' }
-    $text = Set-TomlKey $text 'vpn_adapter_patterns' (Toml-List @([regex]::Escape($adapterName)))
-    $text = Set-TomlKey $text 'allowed_patterns' (Toml-List (Split-List $provider))
-    Warn 'Tipp: Die Oberfläche zeigt bei jeder Prüfung den Anbieternamen. Lautet er anders, in config.toml unter allowed_patterns ergänzen.'
-  }
-
-  # -- Browser für die Oberfläche
-  $mullvad = @(
-    (Join-Path $env:LOCALAPPDATA 'Mullvad\MullvadBrowser\Release\mullvadbrowser.exe'),
-    (Join-Path $env:ProgramFiles 'Mullvad Browser\Browser\mullvadbrowser.exe')
-  ) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
-  if ($mullvad) {
-    Good 'Mullvad Browser gefunden – empfohlen für die Oberfläche (immer privat, keine Telemetrie).'
-    $b = Choose 'Browser für die Oberfläche?' @('Mullvad Browser, sonst Edge (auto)', 'Nur Mullvad Browser (streng)', 'Immer Edge') 1
-  } else {
-    Info 'Mullvad Browser nicht gefunden – die Oberfläche nutzt Edge mit eigenem, leerem Profil.'
-    Info 'Empfehlung: Mullvad Browser installieren (https://mullvad.net/browser); danach nimmt die Oberfläche ihn automatisch.'
-    $b = 1
-  }
-  $text = Set-TomlKey $text 'ui_browser' (Toml-String @('auto', 'mullvad', 'edge')[$b - 1])
-
-  # -- Speicherort
+  # -- Frage 2: Speicherort
   $defaultStore = Join-Path $env:USERPROFILE 'Videos\QuiteSafeGrab'
+  Question '[2/2]' 'Speicherort für die Videos' @(
+    'Nicht in OneDrive (würde synchronisiert). Enter übernimmt den Vorschlag.')
   while ($true) {
-    $store = Ask 'Wo sollen die Videos gespeichert werden?' $defaultStore
-    $store = [Environment]::ExpandEnvironmentVariables($store)
-    $full = [IO.Path]::GetFullPath($store)
+    $store = [Environment]::ExpandEnvironmentVariables((Ask 'Ordner' $defaultStore))
+    try { $full = [IO.Path]::GetFullPath($store) } catch { Info 'Ungültiger Pfad.'; continue }
     $inOneDrive = $false
     foreach ($od in @($env:OneDrive, $env:OneDriveConsumer, $env:OneDriveCommercial) | Where-Object { $_ }) {
       if ($full.StartsWith($od.TrimEnd('\'), [StringComparison]::OrdinalIgnoreCase)) { $inOneDrive = $true }
@@ -416,11 +438,54 @@ if ($askSettings) {
     if ($inOneDrive -and -not (AskYesNo 'Der Ordner liegt in OneDrive und würde synchronisiert. Trotzdem verwenden?' $false)) { continue }
     break
   }
+  Good "Speicherort: $full"
   $text = Set-TomlKey $text 'storage' (Toml-String $full)
+
+  # -- VPN: Proton wird erkannt, nur sonst wird gefragt
+  $protonInstalled = (Test-Path -LiteralPath (Join-Path $env:ProgramFiles 'Proton\VPN')) -or
+    [bool](Get-ItemProperty 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*', 'HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*', 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*' -ErrorAction SilentlyContinue |
+           Where-Object { $_.DisplayName -match '^Proton ?VPN' })
+  if ($protonInstalled) {
+    $text = Set-TomlKey $text 'vpn_adapter_patterns' (Toml-List @('Proton', 'ProTUN'))
+    $text = Set-TomlKey $text 'allowed_patterns' (Toml-List @('Proton', 'M247', 'Datacamp', 'WorldStream'))
+    Good 'VPN: Proton VPN erkannt.'
+  } else {
+    Question '[+]' 'Kein Proton VPN gefunden' @(
+      'Quite Safe Grab lädt nur über ein aktives VPN. Empfohlen und getestet ist Proton VPN (https://protonvpn.com).',
+      'Ein anderes VPN geht auch, wenn es einen eigenen Netzwerkadapter hat (z. B. Mullvad, NordVPN mit WireGuard/OpenVPN).')
+    $vpnChoice = Choose 'Wie weiter?' @('Ich installiere Proton VPN später (Einstellungen für Proton übernehmen)', 'Ich nutze ein anderes VPN – es ist jetzt verbunden') 1
+    if ($vpnChoice -eq 1) {
+      $text = Set-TomlKey $text 'vpn_adapter_patterns' (Toml-List @('Proton', 'ProTUN'))
+      $text = Set-TomlKey $text 'allowed_patterns' (Toml-List @('Proton', 'M247', 'Datacamp', 'WorldStream'))
+      Warn 'Proton-Einstellungen übernommen. Nach der Installation von Proton: Einrichten.cmd erneut starten (für die Netzsperre).'
+    } else {
+      $adapters = @(Get-NetAdapter | Where-Object Status -eq 'Up' | Sort-Object Name)
+      $labels = @($adapters | ForEach-Object { "$($_.Name)  ($($_.InterfaceDescription))" })
+      if (-not $labels) { throw 'Keine aktiven Netzwerkadapter gefunden.' }
+      Info 'Aktive Netzwerkadapter:'
+      $pick = Choose 'Welcher davon ist das VPN?' $labels 1
+      $adapterName = $adapters[$pick - 1].Name
+      $provider = Ask 'Name des VPN-Anbieters (z. B. Mullvad, NordVPN; mehrere mit Komma)' ''
+      if (-not $provider) { throw 'Ohne Anbieternamen kann die Ausgangsprüfung nicht arbeiten.' }
+      $text = Set-TomlKey $text 'vpn_adapter_patterns' (Toml-List @([regex]::Escape($adapterName)))
+      $text = Set-TomlKey $text 'allowed_patterns' (Toml-List (Split-List $provider))
+      Warn 'Tipp: Die Oberfläche zeigt bei jeder Prüfung den Anbieternamen. Lautet er anders, in config.toml unter allowed_patterns ergänzen.'
+    }
+  }
+
+  # Browser: keine Frage. Mullvad Browser, wenn vorhanden, sonst Edge (ui_browser = "auto").
+  $text = Set-TomlKey $text 'ui_browser' (Toml-String 'auto')
+  $mullvad = @(
+    (Join-Path $env:LOCALAPPDATA 'Mullvad\MullvadBrowser\Release\mullvadbrowser.exe'),
+    (Join-Path $env:ProgramFiles 'Mullvad Browser\Browser\mullvadbrowser.exe')
+  ) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+  if ($mullvad) { Good 'Browser für die Oberfläche: Mullvad Browser.' }
+  else { Info 'Browser für die Oberfläche: Edge (eigenes, leeres Profil). Tipp: Mit installiertem Mullvad Browser (https://mullvad.net/browser) nimmt Quite Safe Grab automatisch diesen.' }
 
   if (Test-Path -LiteralPath $cfgFile) { Copy-Item -LiteralPath $cfgFile -Destination "$cfgFile.bak" -Force; Info 'Alte Einstellungen gesichert: config.toml.bak' }
   [IO.File]::WriteAllText($cfgFile, $text, (New-Object Text.UTF8Encoding($false)))
-  if (-not (Test-Config)) { throw 'Die neue config.toml ist ungültig – bitte setup.ps1 -Reconfigure erneut ausführen.' }
+  if (-not (Test-Config)) { throw 'Die neue config.toml ist ungültig – bitte Einrichten.cmd erneut starten.' }
+  Write-Host ''
   Good "Einstellungen gespeichert: $cfgFile"
 }
 
@@ -434,28 +499,33 @@ Write-State ([ordered]@{ app_version = $appVersion; python = $PY_VERSION; ffmpeg
 
 # ---------------------------------------------------------------- 8. Netzsperre
 Step 'Netzsperre (Windows-Firewall)'
+Info 'Firewall-Regeln erlauben den Programmen von Quite Safe Grab nur den Weg über das VPN.'
 $fw = Get-VpnStatus
-if ($fw.Code -eq 0) { Good 'Netzsperre vollständig und passend.' }
-else {
-  $vpnMissing = ($fw.Text -join "`n") -match 'KEINER aktiv|nicht pruefbar'
-  Info 'Die Netzsperre fehlt oder passt nicht mehr zur VPN-Adresse. Sie wird einmalig mit Administratorrechten angelegt.'
-  $doApply = AskYesNo 'Netzsperre jetzt anlegen?' (-not $Defaults)
-  while ($doApply) {
-    if ($vpnMissing) {
-      Warn 'Dein VPN ist nicht verbunden. Bitte jetzt verbinden und dann Enter drücken (oder "s" zum Überspringen).'
-      if (((Read-Host '   ').Trim().ToLowerInvariant()) -eq 's') { break }
+function Test-VpnDown($status) { ($status.Text -join "`n") -match 'KEINER aktiv|nicht pruefbar' }
+if ($fw.Code -ne 0 -and (Test-VpnDown $fw)) {
+  Warn 'Dein VPN ist nicht verbunden – deshalb kann die Netzsperre gerade nicht geprüft werden.'
+  if (-not $Defaults) {
+    while ($true) {
+      $a = (Read-Green 'Bitte VPN verbinden und Enter drücken (oder "s" zum Überspringen): ').Trim().ToLowerInvariant()
+      if ($a -eq 's') { break }
       $fw = Get-VpnStatus
-      $vpnMissing = ($fw.Text -join "`n") -match 'KEINER aktiv|nicht pruefbar'
-      if ($fw.Code -eq 0) { break }
-      continue
+      if (-not (Test-VpnDown $fw)) { break }
+      Warn 'Noch kein VPN erkannt.'
     }
-    Info 'Gleich erscheint eine Windows-Abfrage (UAC): mit "Ja" bestätigen und im neuen Fenster am Ende Enter drücken.'
+  }
+}
+if ($fw.Code -eq 0) { Good 'Netzsperre vollständig und passend.' }
+elseif (Test-VpnDown $fw) { Warn 'Übersprungen. Später mit verbundenem VPN: Einrichten.cmd erneut starten.' }
+else {
+  Info 'Die Netzsperre fehlt für diesen Ordner oder passt nicht mehr zur VPN-Adresse.'
+  Info 'Sie wird einmalig mit Administratorrechten angelegt (Windows fragt nach).'
+  if (AskYesNo 'Netzsperre jetzt anlegen?' (-not $Defaults)) {
+    Info 'Gleich erscheint eine Windows-Abfrage: mit "Ja" bestätigen und im neuen Fenster am Ende Enter drücken.'
     (Invoke-Py @('-I', (Join-Path $app 'fw.py'), 'apply')).Text | ForEach-Object { Info $_ }
     $fw = Get-VpnStatus
-    break
   }
   if ($fw.Code -eq 0) { Good 'Netzsperre vollständig und passend.' }
-  else { Warn 'Netzsperre noch nicht eingerichtet. Später mit verbundenem VPN: Einrichten.cmd erneut starten (oder qsgrab.cmd firewall apply).' }
+  else { Warn 'Netzsperre noch nicht eingerichtet – ohne sie startet kein Download. Später: Einrichten.cmd erneut starten.' }
 }
 
 # ---------------------------------------------------------------- 9. Verknüpfung
@@ -477,15 +547,15 @@ if (-not (Test-Path -LiteralPath $lnk)) {
 
 # ---------------------------------------------------------------- Fertig
 Write-Host ''
-Write-Host '======================================================================' -ForegroundColor Green
-Write-Host " Fertig – Quite Safe Grab $appVersion ist eingerichtet." -ForegroundColor Green
-Write-Host '======================================================================' -ForegroundColor Green
+Write-Host '======================================================================' -ForegroundColor Gray
+Write-Host " Fertig – Quite Safe Grab $appVersion ist eingerichtet." -ForegroundColor Gray
+Write-Host '======================================================================' -ForegroundColor Gray
 Write-Host ''
-Write-Host ' So startest du das Programm:' -ForegroundColor White
+Write-Host ' So startest du das Programm:' -ForegroundColor Gray
 Write-Host '   1. VPN verbinden.'
 if (Test-Path -LiteralPath $lnk) { Write-Host '   2. Doppelklick auf "Quite Safe Grab" auf dem Desktop' }
 else { Write-Host '   2. Doppelklick auf diese Datei:' }
-Write-Host "      $(Join-Path $app 'Oberflaeche-starten.cmd')" -ForegroundColor Cyan
+Write-Host "      $(Join-Path $app 'Oberflaeche-starten.cmd')" -ForegroundColor Gray
 Write-Host '   Das schwarze Fenster offen lassen; im Browser oben muss "Geschützt" stehen.'
 Write-Host ''
 Write-Host ' Updates und Einstellungen: diese Einrichtung jederzeit erneut starten (Einrichten.cmd).'

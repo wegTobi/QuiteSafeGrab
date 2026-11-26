@@ -155,7 +155,9 @@ def load_config(path):
         if data['ui_browser'] not in UI_BROWSERS:
             raise ValueError('ui_browser muss "auto", "mullvad" oder "edge" sein')
         for key in ('home_country_names', 'blocked_orgs', 'allowed_patterns', 'voe_hosts'):
-            if not isinstance(data[key], list) or not data[key] or any(not isinstance(x, str) or not x.strip() for x in data[key]):
+            # blocked_orgs darf leer sein (Zusatzsicherung; den Schutz traegt die Heimatland-Pruefung).
+            empty_ok = key == 'blocked_orgs'
+            if not isinstance(data[key], list) or (not data[key] and not empty_ok) or any(not isinstance(x, str) or not x.strip() for x in data[key]):
                 raise ValueError(f'Ungueltige Liste: {key}')
         for pattern in data['blocked_orgs'] + data['allowed_patterns']:
             re.compile(pattern, re.I)
