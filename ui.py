@@ -73,6 +73,10 @@ class State:
     def __init__(self, config, config_path):
         self.lock = threading.RLock()
         self.config, self.config_path = config, config_path
+        # Frisches Mullvad-Profil: Die erste geladene Seite bekommt manchmal kein JavaScript (Erweiterungen
+        # werden gerade eingerichtet). Bis die Seite sich einmal gemeldet hat, laedt sie sich deshalb neu.
+        self.reload_until_alive = False
+        self.page_alive = False
         self.storage = Path(os.path.abspath(Path(config['storage']).expanduser()))
         self.checks_file = self.storage / '.state' / 'ui-checks.json'
         self.checks = {k: None for k in CHECK_KEYS}
@@ -391,9 +395,11 @@ def make_handler(state, token, port_holder):
             origin = self.headers.get('Origin')
             return origin in (None, f'http://{expected}')
 
-        def send(self, code, body, ctype='application/json; charset=utf-8'):
+        def send(self, code, body, ctype='application/json; charset=utf-8', refresh=False):
             data = body if isinstance(body, bytes) else json.dumps(body, ensure_ascii=False).encode('utf-8')
             self.send_response(code)
+            if refresh:
+                self.send_header('Refresh', '4')
             self.send_header('Content-Type', ctype)
             self.send_header('Content-Length', str(len(data)))
             self.send_header('Cache-Control', 'no-store')
@@ -409,7 +415,10 @@ def make_handler(state, token, port_holder):
 
         def authorized(self):
             got = self.headers.get('X-QSGrab-Token', '')
-            return hmac.compare_digest(got.encode('utf-8', 'replace'), token.encode('ascii'))
+            ok = hmac.compare_digest(got.encode('utf-8', 'replace'), token.encode('ascii'))
+            if ok:
+                state.page_alive = True
+            return ok
 
         def do_GET(self):
             if not self.origin_ok():
@@ -418,7 +427,8 @@ def make_handler(state, token, port_holder):
             if path in STATIC:
                 name, ctype = STATIC[path]
                 try:
-                    return self.send(200, (APP / 'ui' / name).read_bytes(), ctype)
+                    refresh = path == '/' and state.reload_until_alive and not state.page_alive
+                    return self.send(200, (APP / 'ui' / name).read_bytes(), ctype, refresh=refresh)
                 except OSError:
                     return self.send(404, {'error': 'missing'})
             if path == '/api/state':
@@ -692,6 +702,8 @@ def main(argv=None):
         elif kind == 'mullvad':
             # Mullvad surft immer privat (kein Verlauf); das Profil bleibt, damit Erweiterungen eingerichtet sind.
             print('Bereite Mullvad Browser vor ...' if not (profile / 'prefs.js').is_file() else '', end='', flush=True)
+            state.reload_until_alive = (not (profile / 'prefs.js').is_file()
+                                        or any((profile / 'extensions' / 'staged').glob('*')))
             if not prepare_mullvad_profile(cmd[0], profile):
                 print('\nFEHLER: Mullvad-Browserprofil liess sich nicht einrichten.', file=sys.stderr)
                 server.server_close()
