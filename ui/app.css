@@ -93,9 +93,20 @@ h2 { font-size: 15px; display: inline; }
 .banner.warn { background: var(--warn-bg); color: var(--warn); }
 
 /* Abschnitte ohne Rahmen: nur Abstand und Ueberschrift gliedern. */
-.grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 36px 48px; margin-top: 8px; }
+/* Trennung nur durch Weissraum und praegnante Ueberschriften - keine Linien, keine Kaesten. */
+.grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 52px 56px; margin-top: 16px; }
 .card { min-width: 0; }
-h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 600; }
+.card .card-head { margin-bottom: 14px; }
+
+/* Sicherheit als ruhige Statusliste im Hintergrund; Probleme (rot) fallen trotzdem auf. */
+.quiet .checks li { grid-template-columns: 8px 104px 1fr auto; gap: 10px; padding: 3px 0; border-top: none; font-size: 13px; align-items: center; }
+.quiet .dot { width: 7px; height: 7px; }
+.quiet .check-name { font-weight: 400; color: var(--muted); }
+.quiet .check-detail { color: var(--muted); opacity: .85; }
+.quiet .check-time { font-size: 11.5px; opacity: .7; }
+.quiet #last-check { font-size: 12px; opacity: .8; margin-top: 10px; }
+.quiet .checks li.problem .check-name, .quiet .checks li.problem .check-detail { color: var(--bad); opacity: 1; }
+h2 { font-size: 15px; font-weight: 600; color: var(--text); }
 .card.wide { grid-column: 1 / -1; }
 .card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; min-height: 32px; }
 

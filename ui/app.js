@@ -128,7 +128,7 @@ function renderChecks(st) {
   ul.replaceChildren();
   for (const [key, label] of CHECKS) {
     const c = st.checks[key];
-    const li = el('li');
+    const li = el('li', c && c.ok === false ? 'problem' : '');
     const dot = el('span', 'dot');
     if (c) {
       dot.classList.add(c.ok === true ? 'good' : c.ok === false ? 'bad' : 'warn');
