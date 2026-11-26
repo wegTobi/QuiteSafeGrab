@@ -204,21 +204,48 @@ function Set-TomlKey([string]$text, [string]$key, [string]$value) {
 }
 function Split-List([string]$s) { @($s -split '[,;]' | ForEach-Object { $_.Trim() } | Where-Object { $_ }) }
 
-function Invoke-Py([string[]]$arguments) {
-  # PS 5.1 macht aus Fehlerausgaben nativer Programme sonst abbrechende Fehler.
-  $ErrorActionPreference = 'Continue'
-  $out = & $pyExe @arguments 2>&1 | ForEach-Object { "$_" }
-  return @{ Code = $LASTEXITCODE; Text = @($out) }
+function Invoke-Py([string[]]$arguments, [string]$busy = '') {
+  # Ohne $busy: direkt ausführen. Mit $busy: im Hintergrund, dabei eine sich drehende Anzeige mit Text.
+  if (-not $busy) {
+    $ErrorActionPreference = 'Continue'   # PS 5.1 macht aus Fehlerausgaben nativer Programme sonst abbrechende Fehler
+    $out = & $pyExe @arguments 2>&1 | ForEach-Object { "$_" }
+    return @{ Code = $LASTEXITCODE; Text = @($out) }
+  }
+  $outFile = [IO.Path]::GetTempFileName(); $errFile = [IO.Path]::GetTempFileName()
+  try {
+    $argLine = ($arguments | ForEach-Object { if ($_ -match '[\s"]') { '"' + $_.Replace('"', '\"') + '"' } else { $_ } }) -join ' '
+    $p = Start-Process -FilePath $pyExe -ArgumentList $argLine -NoNewWindow -PassThru `
+      -RedirectStandardOutput $outFile -RedirectStandardError $errFile
+    $null = $p.Handle   # Exitcode später verlässlich abrufbar
+    $spin = '|/-\'; $i = 0; $watch = [Diagnostics.Stopwatch]::StartNew()
+    while (-not $p.HasExited) {
+      Write-Host ("`r   [{0}] {1} ({2:N0} s)" -f $spin[$i % 4], $busy, $watch.Elapsed.TotalSeconds).PadRight(78) -NoNewline -ForegroundColor Gray
+      Start-Sleep -Milliseconds 150; $i++
+    }
+    $p.WaitForExit()
+    Write-Host ("`r" + ''.PadRight(78) + "`r") -NoNewline
+    $text = @(Get-Content -LiteralPath $outFile -Encoding UTF8) + @(Get-Content -LiteralPath $errFile -Encoding UTF8) | Where-Object { $_ -ne $null }
+    return @{ Code = $p.ExitCode; Text = @($text) }
+  } finally { Remove-Item -LiteralPath $outFile, $errFile -ErrorAction SilentlyContinue }
 }
 
 function Test-Config {
-  $r = Invoke-Py @('-I', '-c', "import sys; sys.path.insert(0, r'$app'); import grab; grab.load_config(r'$cfgFile'); print('CONFIG-OK')")
+  $r = Invoke-Py @('-I', '-c', "import sys; sys.path.insert(0, r'$app'); import grab; grab.load_config(r'$cfgFile'); print('CONFIG-OK')") 'Prüfe Einstellungen'
   return ($r.Code -eq 0 -and ($r.Text -join '') -match 'CONFIG-OK')
 }
 
 function Get-VpnStatus {
   # Exitcode von "fw.py status": 0 = Netzsperre passt, 2 = fehlt/passt nicht/kein VPN
-  return Invoke-Py @('-I', (Join-Path $app 'fw.py'), 'status')
+  return Invoke-Py @('-I', (Join-Path $app 'fw.py'), 'status') 'Prüfe VPN und Firewall-Regeln'
+}
+
+function Get-RuleFolders {
+  # Ordner, für deren Programme es bereits Quite-Safe-Grab-Regeln gibt (Lesen braucht keine Adminrechte).
+  try {
+    return @(Get-NetFirewallRule -Name 'QuiteSafeGrab-*' -ErrorAction Stop | Get-NetFirewallApplicationFilter |
+      ForEach-Object { $_.Program } | Where-Object { $_ -match '\\python\\python\.exe$' } |
+      ForEach-Object { Split-Path (Split-Path $_ -Parent) -Parent } | Select-Object -Unique)
+  } catch { return @() }
 }
 
 # ---------------------------------------------------------------- 1. Rechner und Stand
@@ -344,7 +371,7 @@ if ($state -and $state.lock_sha256 -eq $lockSha -and (Test-Path -LiteralPath $li
   if (Test-Path -LiteralPath $libDir) { Remove-Item -LiteralPath $libDir -Recurse -Force }
   Move-Item -LiteralPath $tmpLib -Destination $libDir
 }
-$check = Invoke-Py @('-I', '-c', 'import yt_dlp, bs4, soupsieve, typing_extensions, ssl, sqlite3, ctypes, tomllib; print(yt_dlp.version.__version__)')
+$check = Invoke-Py @('-I', '-c', 'import yt_dlp, bs4, soupsieve, typing_extensions, ssl, sqlite3, ctypes, tomllib; print(yt_dlp.version.__version__)') 'Prüfe Python-Laufzeit'
 if ($check.Code -ne 0) { throw 'Python-Laufzeit oder Abhängigkeiten unvollständig.' }
 Info "yt-dlp $($check.Text[-1])"
 
@@ -518,10 +545,22 @@ if ($fw.Code -eq 0) { Good 'Netzsperre vollständig und passend.' }
 elseif (Test-VpnDown $fw) { Warn 'Übersprungen. Später mit verbundenem VPN: Einrichten.cmd erneut starten.' }
 else {
   Info 'Die Netzsperre fehlt für diesen Ordner oder passt nicht mehr zur VPN-Adresse.'
-  Info 'Sie wird einmalig mit Administratorrechten angelegt (Windows fragt nach).'
+  $others = @(Get-RuleFolders | Where-Object { $_ -and ($_.TrimEnd('\') -ne $app.TrimEnd('\')) })
+  if ($others) {
+    Warn 'Achtung: Die Netzsperre gilt bisher für eine andere Quite-Safe-Grab-Installation:'
+    foreach ($o in $others) { Warn "   $o" }
+    Warn 'Windows kennt nur EINE Netzsperre für Quite Safe Grab. Legst du sie hier an, startet die andere'
+    Warn 'Installation keine Downloads mehr (Sicherheitsabbruch), bis dort die Einrichtung erneut läuft.'
+  }
+  Write-Host ''
+  Info 'So läuft es ab:'
+  Info '  1. Windows fragt "Möchten Sie zulassen, dass ... Änderungen vornimmt?" -> auf "Ja" klicken.'
+  Info '  2. Ein zweites schwarzes Fenster öffnet sich. Es braucht einige Sekunden – bitte nichts drücken.'
+  Info '  3. Am Ende steht dort FERTIG, und das Fenster schließt sich nach ein paar Sekunden von selbst.'
+  Info '     (Steht dort FEHLER, bleibt es offen – dann die Meldung lesen und Enter drücken.)'
   if (AskYesNo 'Netzsperre jetzt anlegen?' (-not $Defaults)) {
-    Info 'Gleich erscheint eine Windows-Abfrage: mit "Ja" bestätigen und im neuen Fenster am Ende Enter drücken.'
-    (Invoke-Py @('-I', (Join-Path $app 'fw.py'), 'apply')).Text | ForEach-Object { Info $_ }
+    $r = Invoke-Py @('-I', (Join-Path $app 'fw.py'), 'apply') 'Warte auf das zweite Fenster (Administrator)'
+    if ($r.Code -ne 0 -and (($r.Text -join "`n") -match 'abgebrochen')) { Warn 'Die Windows-Abfrage wurde abgelehnt oder geschlossen.' }
     $fw = Get-VpnStatus
   }
   if ($fw.Code -eq 0) { Good 'Netzsperre vollständig und passend.' }

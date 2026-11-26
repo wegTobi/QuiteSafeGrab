@@ -10,10 +10,22 @@ Aendert sich diese Adresse (anderes Protokoll/Konto), 'apply' erneut ausfuehren.
 Es werden ausschliesslich Regeln mit dem Namen QuiteSafeGrab-* angelegt oder entfernt.
 """
 import argparse
+import contextlib
 import ctypes
+import io
+import time
 import subprocess
 import sys
 from pathlib import Path
+
+if '--elevated' in sys.argv:
+    # Sofort sichtbar, bevor die uebrigen Module laden: der Nutzer soll wissen, was dieses Fenster tut.
+    with contextlib.suppress(Exception):
+        ctypes.windll.kernel32.SetConsoleTitleW('Quite Safe Grab - Netzsperre (Administrator)')
+    print('\n  Quite Safe Grab - Netzsperre wird eingerichtet\n'
+          '  ==============================================\n\n'
+          '  Bitte warten und nichts druecken. Das dauert meist 5 bis 20 Sekunden.\n'
+          '  Dieses Fenster meldet sich am Ende mit FERTIG oder FEHLER.\n', flush=True)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import grab as g
@@ -60,33 +72,73 @@ def status(config):
     return 0 if problem is None else 2
 
 
+def step(text):
+    print(f'  ... {text}', flush=True)
+
+
 def apply(config, elevated):
     if not is_admin():
         return relaunch('apply')
+    step('Lese Netzwerkadapter und vorhandene Regeln (einige Sekunden)')
     state, vpn, ips = query(config)
     if not ips:
-        print('Keine aktive VPN-Adresse. Proton verbinden und erneut ausfuehren.')
+        print('\n  FEHLER: Kein verbundenes VPN gefunden. Bitte VPN verbinden und die Einrichtung erneut starten.')
         return finish(elevated, 2)
+    step('Lege die Firewall-Regeln an')
     script = winguard.build_apply_script(g.guard_programs(), ips)
     code, out, err = powershell(script)
     if code != 0:
-        print('Regeln konnten nicht angelegt werden: ' + g.safe_text(err.strip()[:500]))
+        print('\n  FEHLER: Regeln konnten nicht angelegt werden: ' + g.safe_text(err.strip()[:500]))
         return finish(elevated, 2)
-    print('Regeln angelegt fuer VPN-Adresse(n): ' + ', '.join(ips))
-    return finish(elevated, status(config))
+    step('Pruefe das Ergebnis')
+    if elevated:
+        with contextlib.redirect_stdout(io.StringIO()):
+            result = status(config)
+        print('\n  FERTIG: Netzsperre angelegt und geprueft.' if result == 0 else '\n  FEHLER: Netzsperre angelegt, Pruefung aber nicht bestanden.')
+    else:
+        print('Regeln angelegt fuer VPN-Adresse(n): ' + ', '.join(ips))
+        result = status(config)
+    return finish(elevated, result)
 
 
 def remove(elevated):
     if not is_admin():
         return relaunch('remove')
+    step('Entferne die Firewall-Regeln')
     code, out, err = powershell(winguard.build_remove_script())
-    print('QuiteSafeGrab-Regeln entfernt.' if code == 0 else 'Entfernen fehlgeschlagen: ' + g.safe_text(err.strip()[:500]))
+    print('\n  FERTIG: Regeln entfernt.' if code == 0 else '\n  FEHLER: Entfernen fehlgeschlagen: ' + g.safe_text(err.strip()[:500]))
     return finish(elevated, 0 if code == 0 else 2)
 
 
-def finish(elevated, code):
-    if elevated:
-        input('Enter zum Schliessen ...')
+def drain_keys():
+    """Vorher (zu frueh) gedrueckte Tasten verwerfen."""
+    try:
+        import msvcrt
+        while msvcrt.kbhit():
+            msvcrt.getwch()
+    except (ImportError, OSError):
+        pass
+
+
+def finish(elevated, code, seconds=8):
+    """Im Administrator-Fenster: Erfolg schliesst nach Countdown selbst, Fehler wartet auf Enter."""
+    if not elevated:
+        return code
+    drain_keys()
+    if code != 0:
+        input('\n  Bitte die Meldung oben lesen, dann Enter druecken, um das Fenster zu schliessen ...')
+        return code
+    try:
+        import msvcrt
+    except ImportError:
+        return code
+    for left in range(seconds, 0, -1):
+        print(f'\r  Dieses Fenster schliesst sich in {left} Sekunden von selbst (oder Enter druecken). ', end='', flush=True)
+        deadline = time.monotonic() + 1
+        while time.monotonic() < deadline:
+            if msvcrt.kbhit() and msvcrt.getwch() in '\r\n':
+                return code
+            time.sleep(0.05)
     return code
 
 
@@ -95,7 +147,7 @@ def relaunch(action):
     params = subprocess.list2cmdline(['-I', str(Path(__file__).resolve()), action, '--elevated'])
     script = (f"Start-Process -FilePath {winguard.ps_quote(sys.executable)} "
               f"-ArgumentList {winguard.ps_quote(params)} -Verb RunAs -Wait")
-    code, out, err = powershell(script, 600)
+    code, out, err = powershell(script, 1800)
     if code != 0:
         print('Erhoehter Start abgebrochen oder fehlgeschlagen.')
         return 2
@@ -122,10 +174,10 @@ def main(argv=None):
         return remove(args.elevated)
     except g.Failure as exc:
         g.error(exc)
-        return exc.code
+        return finish(args.elevated, exc.code)
     except SystemExit as exc:
         print(exc, file=sys.stderr)
-        return 2
+        return finish(args.elevated, 2)
 
 
 if __name__ == '__main__':
