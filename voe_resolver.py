@@ -74,6 +74,21 @@ def parse_page(text, url):
     return None
 
 
+# Spiegel, deren Seite /<id> das Video nicht immer einbindet; /e/<id> (Einbettungsseite) schon.
+EMBED_HOSTS = {'caseyseemavoid.com'}
+
+
+def embed_url(url):
+    """https://caseyseemavoid.com/<id> -> https://caseyseemavoid.com/e/<id>, sonst None."""
+    p = urllib.parse.urlsplit(url)
+    if p.hostname not in EMBED_HOSTS:
+        return None
+    m = re.fullmatch(r'/([A-Za-z0-9]+)/?', p.path)
+    if not m:
+        return None
+    return urllib.parse.urlunsplit((p.scheme, p.netloc, '/e/' + m.group(1), p.query, ''))
+
+
 def resolve(url, hosts):
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), Redirect(hosts))
     visited = set()
@@ -96,6 +111,10 @@ def resolve(url, hosts):
         result = parse_page(text, url)
         if result:
             return result
+        embed = embed_url(url)
+        if embed and embed not in visited:
+            url = embed   # Seite ohne eingebundenes Video: einmal die /e/-Fassung versuchen
+            continue
         raise ValueError('Keine eindeutige unterstuetzte Medienquelle; keine Schutzumgehung')
     raise ValueError('Zu viele VOE-Weiterleitungen')
 

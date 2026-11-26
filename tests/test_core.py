@@ -408,6 +408,35 @@ class TestCore(unittest.TestCase):
         with self.assertRaises(ValueError):
             voe.allowed_page('https://evil.example/e/a', ['voe.sx'])
 
+    def test_voe_embed_url(self):
+        self.assertEqual(voe.embed_url('https://caseyseemavoid.com/123test123'), 'https://caseyseemavoid.com/e/123test123')
+        self.assertEqual(voe.embed_url('https://caseyseemavoid.com/abc/'), 'https://caseyseemavoid.com/e/abc')
+        self.assertIsNone(voe.embed_url('https://caseyseemavoid.com/e/abc'))
+        self.assertIsNone(voe.embed_url('https://voe.sx/abc'))
+
+    def test_voe_retries_embed_page_once(self):
+        hosts = ['voe.sx', 'caseyseemavoid.com']
+        good = '<html><script>sources = {"mp4":"https://cdn.example/film.mp4"}</script></html>'
+        pages = {'https://voe.sx/abc': ('https://caseyseemavoid.com/abc', '<html>kein Video</html>'),
+                 'https://caseyseemavoid.com/e/abc': ('https://caseyseemavoid.com/e/abc', good)}
+        opened = []
+
+        class Response(io.BytesIO):
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+
+        class Opener:
+            def open(self, req, timeout):
+                opened.append(req.full_url)
+                final, body = pages[req.full_url]
+                r = Response(body.encode()); r.url = final
+                return r
+
+        with patch.object(voe.urllib.request, 'build_opener', return_value=Opener()):
+            result = voe.resolve('https://voe.sx/abc', hosts)
+        self.assertEqual(result['url'], 'https://cdn.example/film.mp4')
+        self.assertEqual(opened, ['https://voe.sx/abc', 'https://caseyseemavoid.com/e/abc'])
+
     def test_preview_protects_order_and_passes_only_names(self):
         events=[]
         class Net:
