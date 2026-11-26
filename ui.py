@@ -145,6 +145,8 @@ class State:
             cur['phase'] = ev.get('phase')
             if ev.get('phase') in ('resolve', 'download', 'remux', 'verify'):
                 cur.update(percent=None, speed=None, eta=None, total=None)
+            if ev.get('phase') == 'download':
+                cur['download_started'] = now()   # fuer die Durchschnittsgeschwindigkeit dieses Videos
         elif kind == 'progress' and cur is not None:
             if ev.get('phase') == 'download':
                 cur.update(percent=ev.get('percent'), speed=ev.get('speed'), eta=ev.get('eta'), total=ev.get('total'))

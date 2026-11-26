@@ -79,8 +79,41 @@ function bytes(n) {
 }
 
 function unit(s) {
-  // yt-dlp: "2.54MiB/s" -> "2,54 MiB/s"
+  // yt-dlp: "212.40MiB" -> "212,40 MiB"
   return s ? s.replace(/^([\d.]+)/, (m) => m.replace('.', ',') + ' ') : '–';
+}
+
+const UNITS = { B: 1, KB: 1e3, MB: 1e6, GB: 1e9, KIB: 1024, MIB: 1024 ** 2, GIB: 1024 ** 3, TIB: 1024 ** 4 };
+function parseSize(s) {
+  // "6.21MiB/s" oder "212.40MiB" -> Bytes; unbekannt -> null
+  const m = /^([\d.]+)\s*([KMGT]?i?B)/i.exec(s || '');
+  if (!m) return null;
+  const f = UNITS[m[2].toUpperCase()];
+  return f ? parseFloat(m[1]) * f : null;
+}
+
+function speedText(bytesPerSec) {
+  // KiB/s ohne Nachkommastellen, ab 1 MiB/s mit zwei.
+  if (bytesPerSec === null || !isFinite(bytesPerSec)) return '–';
+  if (bytesPerSec >= 1024 ** 2) return (bytesPerSec / 1024 ** 2).toFixed(2).replace('.', ',') + ' MiB/s';
+  if (bytesPerSec >= 1024) return Math.round(bytesPerSec / 1024) + ' KiB/s';
+  return Math.round(bytesPerSec) + ' B/s';
+}
+
+// Was gerade passiert, solange noch nichts heruntergeladen wird.
+const HINTS = {
+  checks: 'Sicherheitsprüfung läuft (VPN, Firewall, IP, DNS) – der Download beginnt gleich.',
+  probe: 'Kurzer Probe-Download zur Kontrolle der Verbindung – der Download beginnt gleich.',
+  resolve: 'Video wird gesucht – der Download beginnt gleich.',
+  download: 'Verbindung zum Video wird aufgebaut …',
+  remux: 'Video wird fertiggestellt (ohne Qualitätsverlust) …',
+  verify: 'Abschlussprüfung der Verbindung …',
+};
+function hintText(st, cur, hasProgress) {
+  if (st.mode === 'check') return 'Sicherheitsprüfung läuft (VPN, Firewall, IP, DNS) …';
+  if (st.mode === 'preview') return 'Titel werden gesucht – vorher und zwischendurch wird die Verbindung geprüft. Noch kein Download.';
+  if (cur.phase === 'download' && hasProgress) return '';
+  return HINTS[cur.phase] || '';
 }
 
 function duration(sec) {
@@ -145,8 +178,10 @@ function renderNow(st) {
     li.hidden = st.mode === 'check' && i > 0;
   }
   const bar = $('bar');
-  const pct = typeof cur.percent === 'number' ? cur.percent : null;
-  if (pct !== null && (cur.phase === 'download' || st.mode === 'preview')) {
+  // Prozent nur beim echten Download (nicht bei Titelsuche oder Prüfungen).
+  const downloading = st.mode === 'download' && cur.phase === 'download';
+  const pct = downloading && typeof cur.percent === 'number' ? cur.percent : null;
+  if (pct !== null) {
     bar.classList.remove('indeterminate');
     $('bar-fill').style.width = pct.toFixed(1) + '%';
     bar.setAttribute('aria-valuenow', pct.toFixed(0));
@@ -155,9 +190,16 @@ function renderNow(st) {
     $('bar-fill').style.width = '';
     bar.removeAttribute('aria-valuenow');
   }
-  $('st-pct').textContent = pct !== null && (cur.phase === 'download' || st.mode === 'preview')
-    ? pct.toFixed(st.mode === 'preview' ? 0 : 1).replace('.', ',') + ' %' : '–';
-  $('st-speed').textContent = cur.phase === 'download' ? unit(cur.speed) : '–';
+  const hint = hintText(st, cur, pct !== null);
+  $('now-hint').hidden = !hint;
+  $('now-hint-text').textContent = hint;
+  $('st-pct').textContent = pct !== null ? pct.toFixed(1).replace('.', ',') + ' %' : '–';
+  $('st-speed').textContent = downloading ? speedText(parseSize(cur.speed)) : '–';
+  // Durchschnitt dieses Videos: geladene Bytes / Zeit seit Beginn des Downloads.
+  const totalBytes = parseSize(cur.total);
+  const since = cur.download_started ? serverNow() - cur.download_started : 0;
+  $('st-avg').textContent = downloading && pct !== null && totalBytes && since > 1
+    ? speedText(totalBytes * pct / 100 / since) : '–';
   $('st-eta').textContent = cur.phase === 'download' && cur.eta ? cur.eta : '–';
   $('st-total').textContent = cur.total ? unit(cur.total) : '–';
   $('st-elapsed').textContent = cur.started ? duration(serverNow() - cur.started) : '–';
@@ -230,7 +272,7 @@ function renderControls(st) {
   const waiting = st.queue.some((x) => x.status === 'waiting');
   const previewing = st.mode === 'preview';
   $('btn-start').disabled = !waiting || (busy && !previewing) || (previewing && st.start_pending);
-  $('btn-start').textContent = previewing ? (st.start_pending ? 'Startet nach Titelsuche' : 'Start nach Titelsuche') : 'Start';
+  $('btn-start').textContent = 'Start';   // waehrend der Titelsuche: Downloads starten automatisch danach
   $('btn-check').disabled = busy;
   $('btn-stop').hidden = !busy;
   $('btn-clear').disabled = !st.queue.some((x) => ['done', 'failed', 'stopped'].includes(x.status));
