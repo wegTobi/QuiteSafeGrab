@@ -41,3 +41,7 @@ CLAUDE.md
 *.log
 .vscode/
 .idea/
+
+# Installationsstand von setup.ps1 (pro PC)
+.install.json
+update.new/

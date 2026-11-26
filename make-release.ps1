@@ -1,20 +1,25 @@
 # Baut das Release-ZIP fuer GitHub aus einer festen Liste von Dateien (nur fuer den Entwickler).
-#   powershell -ExecutionPolicy Bypass -File .\make-release.ps1 -Version 1.0.0
+#   powershell -ExecutionPolicy Bypass -File .\make-release.ps1          (Version aus der Datei VERSION)
 # Lokale Dateien (config.toml, python\, lib\, tools\, venv\, Downloads, Arbeitsordner) kommen nie hinein.
 # Vor dem Packen wird jede Textdatei nach persoenlichen Angaben dieses PCs durchsucht
 # (Benutzername und seine Teile, Profilpfad, Rechnername, lokale IPv4-Adressen, Git-E-Mail
 # sowie alles aus -Forbid). Ein Treffer bricht ab.
+# Auf GitHub als Release hochladen: Tag "v<Version>", Dateien QuiteSafeGrab-Windows-<Version>.zip
+# UND .zip.sha256 (beide braucht die Update-Funktion von setup.ps1).
 param(
-  [Parameter(Mandatory = $true)][ValidatePattern('^\d+\.\d+\.\d+$')][string]$Version,
+  [ValidatePattern('^\d+\.\d+\.\d+$')][string]$Version = '',
   [string[]]$Forbid = @()
 )
 $ErrorActionPreference = 'Stop'
 Set-Location -LiteralPath $PSScriptRoot
 Add-Type -AssemblyName System.IO.Compression.FileSystem
+$fileVersion = (Get-Content -LiteralPath 'VERSION' -TotalCount 1).Trim()
+if (-not $Version) { $Version = $fileVersion }
+if ($Version -ne $fileVersion) { throw "Version $Version passt nicht zur Datei VERSION ($fileVersion). Erst VERSION anpassen." }
 
 $include = @(
   'grab.py', 'syscompat.py', 'winguard.py', 'fw.py', 'voe_resolver.py', 'ui.py',
-  'ui\index.html', 'ui\app.css', 'ui\app.js',
+  'ui\index.html', 'ui\app.css', 'ui\app.js', 'VERSION', 'Einrichten.cmd', '.gitattributes',
   'qsgrab.cmd', 'Oberflaeche-starten.cmd', 'setup.ps1', 'haertung.ps1', 'config.default.toml',
   'requirements.txt', 'requirements.lock', 'vendor-sha256.json',
   'README.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md', '.gitignore'

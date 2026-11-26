@@ -17,22 +17,18 @@ Der Download läuft **nur, wenn dein VPN nachweislich aktiv ist**. Vor jedem Sch
 
 ## Einrichtung (einmalig, ca. 5 Minuten)
 
-1. **ZIP herunterladen** von der Release-Seite und in einen Ordner entpacken, der **nicht** in OneDrive liegt (z. B. `C:\Tools\Quite Safe Grab`).
-   Bei Windows-Warnungen: Rechtsklick auf die ZIP → Eigenschaften → „Zulassen“ anhaken, dann entpacken.
-2. **PowerShell in diesem Ordner öffnen** (im Explorer: Adressleiste → `powershell` eintippen → Enter) und ausführen:
-   ```powershell
-   powershell -ExecutionPolicy Bypass -File .\setup.ps1
-   ```
-   Das Skript legt eine eigene Python-Laufzeit (`python\`) und FFmpeg (`tools\`) an. Es lädt nur von fest eingetragenen Adressen (python.org, GitHub/gyan.dev) und prüft jede Datei per SHA256, bevor es sie benutzt. Es braucht keine Administratorrechte.
-3. **`config.toml` prüfen** (mit dem Editor öffnen). Wichtig sind:
-   - `home_country` / `home_country_names`: dein Land. Taucht es in einer Prüfung auf, läuft der Verkehr nicht über das VPN.
-   - `blocked_orgs`: dein Internetanbieter.
-   - `vpn_adapter_patterns` und `allowed_patterns`: bei Proton passt die Vorgabe. Bei einem anderen VPN den Adapternamen aus `Get-NetAdapter` und den Anbieternamen eintragen.
-4. **VPN verbinden** (Kill-Switch des VPN-Clients einschalten wird empfohlen), dann die Netzsperre anlegen:
-   ```powershell
-   .\qsgrab.cmd firewall apply
-   ```
-   Windows fragt einmal nach Administratorrechten. Am Ende muss stehen: „Netzsperre vollstaendig und passend“.
+1. **ZIP herunterladen** von der Release-Seite (`QuiteSafeGrab-Windows-x.y.z.zip`) und in einen Ordner entpacken, der **nicht** in OneDrive liegt (z. B. `C:\Tools\QuiteSafeGrab`).
+   Vorher: Rechtsklick auf die ZIP → Eigenschaften → unten „Zulassen“ anhaken → OK. Sonst warnt Windows bei jedem Skript.
+2. **VPN verbinden** (Kill-Switch im VPN-Client einschalten wird empfohlen).
+3. **Doppelklick auf `Einrichten.cmd`.** Die Einrichtung
+   - lädt eine eigene Python-Laufzeit (`python\`, ca. 10 MB) und FFmpeg (`tools\`, ca. 114 MB) – nur von fest eingetragenen Adressen (python.org, GitHub/gyan.dev), jede Datei per SHA256 geprüft; ein vorhandenes Python wird weder benutzt noch verändert,
+   - fragt dein **Heimatland** (Vorschlag aus den Windows-Regionseinstellungen), deinen **Internetanbieter** (Vorgaben für DE/AT/CH), dein **VPN** (Proton oder Auswahl des Adapters), den **Browser** für die Oberfläche und den **Speicherort** ab und schreibt daraus `config.toml`,
+   - legt auf Wunsch die **Netzsperre** an (Windows fragt einmal nach Administratorrechten: „Ja“, im neuen Fenster am Ende Enter) und eine **Desktop-Verknüpfung**,
+   - sagt am Ende, welche Datei du startest.
+
+Die Einrichtung kann **jederzeit erneut** gestartet werden: Sie erkennt die fertige Einrichtung, fragt nichts erneut (außer du möchtest Einstellungen ändern), sucht auf Wunsch eine **neue Version auf GitHub** und spielt sie ein, erneuert Python, FFmpeg und Abhängigkeiten nur bei Bedarf und prüft die Netzsperre.
+
+Ohne Doppelklick geht es auch in PowerShell: `powershell -ExecutionPolicy Bypass -File .\setup.ps1` (Optionen: `-Reconfigure` Einstellungen neu abfragen, `-NoUpdateCheck`, `-Offline`, `-Defaults` ohne Fragen).
 
 ## Benutzung
 
@@ -114,8 +110,8 @@ powershell -ExecutionPolicy Bypass -File .\haertung.ps1 -Storage "D:\Quite Safe 
 
 ## Update und Deinstallation
 
-- **Update:** Neues Release in einen neuen Ordner entpacken, die alte `config.toml` hineinkopieren, `setup.ps1` ausführen, dann `.\qsgrab.cmd firewall apply` (die Regeln zeigen auf die Programme im neuen Ordner).
-- **Python-Sicherheitsupdates** kommen nur mit neuen QuiteSafeGrab-Releases (die Laufzeit in `python\` aktualisiert sich nicht selbst).
+- **Update:** `Einrichten.cmd` erneut starten und die Frage nach einer neuen Version mit „j“ beantworten. Die neue Version (geprüft per SHA256 aus dem Release) wird in denselben Ordner eingespielt; `config.toml` und deine Videos bleiben unberührt, die Netzsperre bleibt gültig.
+- **Python- und FFmpeg-Updates** kommen mit neuen Quite-Safe-Grab-Versionen; die Einrichtung erneuert sie dann automatisch.
 - **Deinstallation:** `.\qsgrab.cmd firewall remove`, danach den Ordner löschen.
 
 ## Was nicht unterstützt wird
