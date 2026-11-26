@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Quite Safe Grab</title>
+<link rel="stylesheet" href="/app.css">
+<script src="/app.js" defer></script>
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <span class="logo" aria-hidden="true"></span>
+    <div>
+      <h1>Quite Safe Grab</h1>
+      <p class="sub">Archiv-Downloader – nur über das VPN</p>
+    </div>
+  </div>
+  <div id="overall" class="pill unknown" role="status" aria-live="polite">Nicht geprüft</div>
+</header>
+
+<noscript>
+  <div class="banner bad">JavaScript ist für diese Seite blockiert, deshalb bleibt alles auf „Nicht geprüft“.
+  Im Mullvad Browser: Schild-Symbol oben rechts → Sicherheitsstufe „Standard“. Die Seite lädt nur Dateien von diesem PC.</div>
+</noscript>
+<div id="banner" class="banner" hidden>
+  <span id="banner-text"></span>
+  <button id="banner-close" class="icon-btn" type="button" aria-label="Meldung schließen">×</button>
+</div>
+<div id="offline" class="banner bad" hidden>Keine Verbindung zur QuiteSafeGrab-Oberfläche. Läuft das QuiteSafeGrab-Fenster noch?</div>
+
+<main class="grid">
+  <section class="card" aria-labelledby="h-checks">
+    <div class="card-head">
+      <h2 id="h-checks">Sicherheit</h2>
+      <button id="btn-check" class="btn" type="button">Jetzt prüfen</button>
+    </div>
+    <ul id="checks" class="checks"></ul>
+    <p class="muted small" id="last-check">Noch keine Prüfung.</p>
+  </section>
+
+  <section class="card" aria-labelledby="h-add">
+    <div class="card-head"><h2 id="h-add">Links hinzufügen</h2></div>
+    <label class="field">
+      <span>Ein Link pro Zeile</span>
+      <textarea id="urls" rows="4" spellcheck="false" autocomplete="off" autocapitalize="off"
+                placeholder="https://…"></textarea>
+    </label>
+    <label class="field">
+      <span>Eigener Dateiname <span class="muted">(optional, nur bei einem Link)</span></span>
+      <input id="name" type="text" maxlength="120" autocomplete="off" spellcheck="false">
+    </label>
+    <div class="row">
+      <button id="btn-add" class="btn" type="button">Zur Warteschlange</button>
+      <button id="btn-start" class="btn primary" type="button">Start</button>
+      <button id="btn-stop" class="btn danger" type="button" hidden>Stopp</button>
+    </div>
+    <p id="add-msg" class="small" role="status" aria-live="polite"></p>
+  </section>
+
+  <section class="card wide" aria-labelledby="h-now">
+    <div class="card-head"><h2 id="h-now">Aktuell</h2><span id="now-mode" class="muted small"></span></div>
+    <div id="now-empty" class="empty">Kein laufender Vorgang.</div>
+    <div id="now" hidden>
+      <div class="now-title" id="now-title">–</div>
+      <ol class="steps" id="steps">
+        <li data-phase="checks">Prüfen</li>
+        <li data-phase="probe">Probe</li>
+        <li data-phase="resolve">Auflösen</li>
+        <li data-phase="download">Download</li>
+        <li data-phase="remux">Remux</li>
+        <li data-phase="verify">Abschluss</li>
+      </ol>
+      <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" id="bar"><div id="bar-fill"></div></div>
+      <dl class="stats">
+        <div><dt>Fortschritt</dt><dd id="st-pct">–</dd></div>
+        <div><dt>Geschwindigkeit</dt><dd id="st-speed">–</dd></div>
+        <div><dt>Restzeit</dt><dd id="st-eta">–</dd></div>
+        <div><dt>Größe</dt><dd id="st-total">–</dd></div>
+        <div><dt>Läuft seit</dt><dd id="st-elapsed">–</dd></div>
+      </dl>
+    </div>
+  </section>
+
+  <section class="card" aria-labelledby="h-queue">
+    <div class="card-head">
+      <h2 id="h-queue">Warteschlange</h2>
+      <button id="btn-clear" class="btn ghost small-btn" type="button">Erledigte entfernen</button>
+    </div>
+    <ul id="queue" class="list"></ul>
+    <div id="queue-empty" class="empty">Leer.</div>
+  </section>
+
+  <section class="card" aria-labelledby="h-done">
+    <div class="card-head">
+      <h2 id="h-done">Fertige Videos</h2>
+      <button id="btn-folder" class="btn ghost small-btn" type="button">Ordner öffnen</button>
+    </div>
+    <ul id="history" class="list"></ul>
+    <div id="history-empty" class="empty">Noch keine Videos.</div>
+  </section>
+
+  <section class="card wide" aria-labelledby="h-log">
+    <details>
+      <summary><h2 id="h-log">Protokoll</h2></summary>
+      <pre id="log" class="log"></pre>
+    </details>
+  </section>
+</main>
+
+<footer class="foot muted small">
+  Lokal auf diesem PC (127.0.0.1) · lädt nichts von außen · Links werden nicht gespeichert ·
+  <span id="browser-info"></span>
+</footer>
+</body>
+</html>

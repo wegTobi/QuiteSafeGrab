@@ -1,0 +1,45 @@
+# Quite Safe Grab fuer Windows - Vorlage. setup.ps1 kopiert sie beim ersten Lauf nach config.toml;
+# Aenderungen bitte nur in config.toml machen (die bleibt bei Updates erhalten).
+# Reine Daten, kein auszufuehrender Konfigurationscode. Alle Eintraege sind Pflicht.
+
+# Ablageort fuer fertige Videos und Arbeitsdateien. Nicht in einem OneDrive-Ordner
+# (haertung.ps1 -Storage <Ordner> setzt einen anderen Ort und nimmt ihn aus dem Suchindex).
+storage = "~/Videos/QuiteSafeGrab"
+
+# Dein Heimatland (ISO-Kuerzel und Namen, wie Geodienste es schreiben). Zeigt eine Pruefung
+# dieses Land an, laeuft der Verkehr nicht ueber das VPN -> Abbruch.
+home_country = "DE"
+home_country_names = ["Germany", "Deutschland"]
+
+# Anbieter, die nie als Ausgang erscheinen duerfen (typisch: dein eigener Internetanbieter).
+# Regulaere Ausdruecke, Gross-/Kleinschreibung egal.
+blocked_orgs = ["Deutsche Telekom", "Vodafone", "1&1", "Telefónica", "Unitymedia"]
+
+# Erlaubte Ausgaenge: Organisationsnamen deines VPN-Anbieters bzw. seiner Rechenzentren,
+# wie am.i.mullvad.net / ipapi.co sie melden. Proton nutzt u. a. diese Namen.
+allowed_patterns = ["Proton", "M247", "Datacamp", "WorldStream"]
+
+# Kleine, frei verfuegbare Testdatei fuer den Probe-Download vor jedem echten Download.
+probe_url = "https://download.samplelib.com/mp4/sample-5s.mp4"
+download_timeout_sec = 3600
+
+# VOE leitet auf wechselnde Spiegel-Domains weiter. Meldet Quite Safe Grab
+# "VOE-Aufloesung fehlgeschlagen", ist oft ein neuer Host hinzugekommen: hier ergaenzen (siehe README).
+voe_hosts = ["voe.sx", "susanexpectcare.com", "shannoncoldalready.com", "caseyseemavoid.com"]
+
+# Namensmuster (Regex, Gross-/Kleinschreibung egal) des aktiven VPN-Adapters, wie ihn
+# "Get-NetAdapter" in PowerShell zeigt (Proton: "ProtonVPN" bzw. "ProTUN").
+# Leer ([]) = keine Adapterpruefung (der Kill-Switch des VPN-Clients muss dann allein schuetzen).
+vpn_adapter_patterns = ["Proton", "ProTUN"]
+
+# Browser fuer die Oberflaeche (qsgrab.cmd ui):
+#   "auto"    Mullvad Browser, wenn installiert (empfohlen: immer privat, keine Telemetrie),
+#             sonst Microsoft Edge mit eigenem, leerem Profil im QuiteSafeGrab-Ordner
+#   "mullvad" nur Mullvad Browser - ohne ihn startet die Oberflaeche nicht
+#   "edge"    immer Edge mit eigenem Profil
+ui_browser = "auto"
+
+# Erzwungene Netzsperre ueber Windows-Firewallregeln: Die Programme des Downloaders duerfen nur
+# mit der VPN-Adresse als Quelle ins Netz. Regeln einmalig anlegen: qsgrab.cmd firewall apply
+# (nach jeder Aenderung der VPN-Adresse wiederholen). true erfordert vpn_adapter_patterns.
+firewall_enforce = true

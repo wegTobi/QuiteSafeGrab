@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Lokale Laufzeit aus setup.ps1 (wird pro PC neu angelegt)
+python/
+python.new/
+lib/
+lib.new/
+tools/
+downloads/
+venv/
+.ui-profile/
+
+# Persoenliche Konfiguration (Vorlage: config.default.toml)
+config.toml
+
+# Release-Ausgabe
+dist/
+
+# Local runtime state and incomplete downloads
+.state/
+.work/
+*.part
+*.ytdl
+*.sqlite
+*.sqlite-*
+
+# VPN credentials and secrets
+*.conf
+*.ovpn
+.env
+.env.*
+
+# Notizen fuer KI-Assistenten / lokale Uebergaben
+CLAUDE.md
+
+# Test and editor artifacts
+.pytest_cache/
+.coverage
+*.log
+.vscode/
+.idea/
