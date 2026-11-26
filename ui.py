@@ -400,7 +400,9 @@ def make_handler(state, token, port_holder):
             self.send_header('Cache-Control', 'no-store')
             self.send_header('Content-Security-Policy', CSP)
             self.send_header('X-Content-Type-Options', 'nosniff')
-            self.send_header('Referrer-Policy', 'no-referrer')
+            # same-origin statt no-referrer: Firefox/Mullvad schicken bei no-referrer fuer POST nur "Origin: null",
+            # und die Origin-Pruefung wuerde jeden Knopfdruck ablehnen. Nach aussen geht weiterhin nichts.
+            self.send_header('Referrer-Policy', 'same-origin')
             self.send_header('X-Frame-Options', 'DENY')
             self.send_header('Cross-Origin-Resource-Policy', 'same-origin')
             self.end_headers()
