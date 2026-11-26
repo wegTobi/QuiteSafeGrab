@@ -6,3 +6,4 @@
 # Uebernommene voe-dl-Dateien byte-genau wie im Original (SHA256 in vendor-sha256.json).
 voe_dl/** text eol=lf
 *.whl binary
+*.png binary

@@ -22,7 +22,7 @@ $include = @(
   'ui\index.html', 'ui\app.css', 'ui\app.js', 'VERSION', 'Einrichten.cmd', '.gitattributes',
   'qsgrab.cmd', 'Oberflaeche-starten.cmd', 'setup.ps1', 'haertung.ps1', 'config.default.toml',
   'requirements.txt', 'requirements.lock', 'vendor-sha256.json',
-  'README.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md', '.gitignore'
+  'README.md', 'docs\TECHNIK.md', 'docs\screenshot.png', 'docs\start.png', 'docs\warteschlange.png', 'LICENSE', 'THIRD_PARTY_NOTICES.md', '.gitignore'
 )
 $includeDirs = @{ 'voe_dl' = '*.py'; 'tests' = '*.py'; 'wheels' = '*.whl' }
 
