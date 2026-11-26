@@ -1,7 +1,7 @@
 ﻿# Quite Safe Grab für Windows – Einrichtung und Aktualisierung.
 # Windows PowerShell 5.1 oder neuer, keine Administratorrechte (nur die Netzsperre fragt per UAC).
 #
-# Am einfachsten: Doppelklick auf "Einrichten.cmd".
+# Am einfachsten: Doppelklick auf "!Einrichten.cmd".
 #
 # Erster Lauf:  lädt Python und FFmpeg (feste Adressen + SHA256), fragt Land, Internetanbieter,
 #               VPN, Browser und Speicherort ab, schreibt config.toml, legt auf Wunsch die
@@ -131,8 +131,8 @@ function Save-Download([string]$url, [string]$target, [string]$what) {
           $speed = if ($watch.Elapsed.TotalSeconds -gt 0) { $mb / $watch.Elapsed.TotalSeconds } else { 0 }
           if ($total -gt 0) {
             $pct = [Math]::Min(100, [int]($done * 100 / $total))
-            $bar = ('#' * [int]($pct / 4)).PadRight(25, '.')
-            $line = "   [$bar] {0,3} %  {1:N1} / {2:N1} MB  ({3:N1} MB/s)" -f $pct, $mb, ($total / 1MB), $speed
+            $bar = ([string][char]0x2588 * [int]($pct / 4)) + ([string][char]0x2591 * (25 - [int]($pct / 4)))
+            $line = "   $bar {0,3} %  {1:N1} / {2:N1} MB  ({3:N1} MB/s)" -f $pct, $mb, ($total / 1MB), $speed
           } else {
             $tick++
             $line = "   [{0}] {1:N1} MB geladen  ({2:N1} MB/s)" -f $spin[$tick % 4], $mb, $speed
@@ -140,7 +140,7 @@ function Save-Download([string]$url, [string]$target, [string]$what) {
           Write-Host ("`r" + $line.PadRight(72)) -NoNewline -ForegroundColor Gray
         }
       }
-      $line = "   [{0}] 100 %  {1:N1} MB in {2:N0} s" -f ('#' * 25), ($done / 1MB), $watch.Elapsed.TotalSeconds
+      $line = "   {0} 100 %  {1:N1} MB in {2:N0} s" -f ([string][char]0x2588 * 25), ($done / 1MB), $watch.Elapsed.TotalSeconds
       Write-Host ("`r" + $line.PadRight(72)) -ForegroundColor Gray
     } finally { $out.Dispose(); $in.Dispose() }
   } finally { $response.Close() }
@@ -483,7 +483,7 @@ if ($askSettings) {
       'Ein anderes VPN geht auch, wenn es einen eigenen Netzwerkadapter hat (z. B. Mullvad, NordVPN mit WireGuard/OpenVPN).')
     $vpnChoice = Choose 'Wie weiter?' @('Ich installiere Proton VPN später (Einstellungen für Proton übernehmen)', 'Ich nutze ein anderes VPN – es ist jetzt verbunden') 1
     if ($vpnChoice -eq 1) {
-      Warn 'Proton-Einstellungen übernommen. Nach der Installation von Proton: Einrichten.cmd erneut starten (für die Netzsperre).'
+      Warn 'Proton-Einstellungen übernommen. Nach der Installation von Proton: !Einrichten.cmd erneut starten (für die Netzsperre).'
     } else {
       $adapters = @(Get-NetAdapter | Where-Object Status -eq 'Up' | Sort-Object Name)
       $labels = @($adapters | ForEach-Object { "$($_.Name)  ($($_.InterfaceDescription))" })
@@ -510,7 +510,7 @@ if ($askSettings) {
 
   if (Test-Path -LiteralPath $cfgFile) { Copy-Item -LiteralPath $cfgFile -Destination "$cfgFile.bak" -Force; Info 'Alte Einstellungen gesichert: config.toml.bak' }
   [IO.File]::WriteAllText($cfgFile, $text, (New-Object Text.UTF8Encoding($false)))
-  if (-not (Test-Config)) { throw 'Die neue config.toml ist ungültig – bitte Einrichten.cmd erneut starten.' }
+  if (-not (Test-Config)) { throw 'Die neue config.toml ist ungültig – bitte !Einrichten.cmd erneut starten.' }
   Write-Host ''
   Info "Einstellungen gespeichert: $cfgFile"
 }
@@ -541,7 +541,7 @@ if ($fw.Code -ne 0 -and (Test-VpnDown $fw)) {
   }
 }
 if ($fw.Code -eq 0) { Info 'Netzsperre vollständig und passend.' }
-elseif (Test-VpnDown $fw) { Warn 'Übersprungen. Später mit verbundenem VPN: Einrichten.cmd erneut starten.' }
+elseif (Test-VpnDown $fw) { Warn 'Übersprungen. Später mit verbundenem VPN: !Einrichten.cmd erneut starten.' }
 else {
   Info 'Die Netzsperre fehlt für diesen Ordner oder passt nicht mehr zur VPN-Adresse.'
   $others = @(Get-RuleFolders | Where-Object { $_ -and ($_.TrimEnd('\') -ne $app.TrimEnd('\')) })
@@ -563,7 +563,7 @@ else {
     $fw = Get-VpnStatus
   }
   if ($fw.Code -eq 0) { Info 'Netzsperre vollständig und passend.' }
-  else { Warn 'Netzsperre noch nicht eingerichtet – ohne sie startet kein Download. Später: Einrichten.cmd erneut starten.' }
+  else { Warn 'Netzsperre noch nicht eingerichtet – ohne sie startet kein Download. Später: !Einrichten.cmd erneut starten.' }
 }
 
 # ---------------------------------------------------------------- 9. Verknüpfung
@@ -603,6 +603,6 @@ else { Write-Host '   2. Doppelklick auf diese Datei:' }
 Write-Host "      $(Join-Path $app 'Oberflaeche-starten.cmd')" -ForegroundColor Gray
 Write-Host '   Das schwarze Fenster offen lassen; im Browser oben muss "Geschützt" stehen.'
 Write-Host ''
-Write-Host ' Updates und Einstellungen: diese Einrichtung jederzeit erneut starten (Einrichten.cmd).'
+Write-Host ' Updates und Einstellungen: diese Einrichtung jederzeit erneut starten (!Einrichten.cmd).'
 if ($fw.Code -ne 0) { Write-Host ' Achtung: Die Netzsperre fehlt noch – ohne sie startet kein Download.' -ForegroundColor Yellow }
 Write-Host ''

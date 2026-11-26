@@ -22,7 +22,7 @@ Der Download läuft **nur, wenn dein VPN nachweislich aktiv ist**. Vor jedem Sch
 1. **ZIP herunterladen** von der Release-Seite (`QuiteSafeGrab-Windows-x.y.z.zip`) und in einen Ordner entpacken, der **nicht** in OneDrive liegt (z. B. `C:\Tools\QuiteSafeGrab`).
    Vorher: Rechtsklick auf die ZIP → Eigenschaften → unten „Zulassen“ anhaken → OK. Sonst warnt Windows bei jedem Skript.
 2. **VPN verbinden** (Kill-Switch im VPN-Client einschalten wird empfohlen).
-3. **Doppelklick auf `Einrichten.cmd`.** Die Einrichtung
+3. **Doppelklick auf `!Einrichten.cmd`.** Die Einrichtung
    - lädt eine eigene Python-Laufzeit (`python\`, ca. 10 MB) und FFmpeg (`tools\`, ca. 114 MB) – nur von fest eingetragenen Adressen (python.org, GitHub/gyan.dev), jede Datei per SHA256 geprüft; ein vorhandenes Python wird weder benutzt noch verändert,
    - fragt nur zwei Dinge: dein **Heimatland** (Vorschlag aus den Windows-Regionseinstellungen) und den **Speicherort**. Proton VPN erkennt sie selbst (sonst Auswahl des VPN-Adapters), den Browser wählt sie automatisch (Mullvad, sonst Edge), Internetanbieter kommen aus einer Ländervorgabe (DE/AT/CH; die Heimatland-Prüfung trägt den Schutz). Daraus entsteht `config.toml`,
    - legt auf Wunsch die **Netzsperre** an (Windows fragt einmal nach Administratorrechten: „Ja“; das zweite Fenster zeigt FERTIG und schließt sich selbst) und eine **Desktop-Verknüpfung** mit Logo,
@@ -112,7 +112,7 @@ powershell -ExecutionPolicy Bypass -File .\haertung.ps1 -Storage "D:\Quite Safe 
 
 ## Update und Deinstallation
 
-- **Update:** `Einrichten.cmd` erneut starten und die Frage nach einer neuen Version mit „j“ beantworten. Die neue Version (geprüft per SHA256 aus dem Release) wird in denselben Ordner eingespielt; `config.toml` und deine Videos bleiben unberührt, die Netzsperre bleibt gültig.
+- **Update:** `!Einrichten.cmd` erneut starten und die Frage nach einer neuen Version mit „j“ beantworten. Die neue Version (geprüft per SHA256 aus dem Release) wird in denselben Ordner eingespielt; `config.toml` und deine Videos bleiben unberührt, die Netzsperre bleibt gültig.
 - **Python- und FFmpeg-Updates** kommen mit neuen Quite-Safe-Grab-Versionen; die Einrichtung erneuert sie dann automatisch.
 - **Deinstallation:** `.\qsgrab.cmd firewall remove`, danach den Ordner löschen.
 

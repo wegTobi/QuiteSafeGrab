@@ -63,7 +63,7 @@ Du siehst jetzt einen Ordner `QuiteSafeGrab-Windows-[Version]` mit mehreren Date
 
 ### 4. Einrichtung starten
 
-Öffne Proton VPN und klicke auf **Verbinden**. Doppelklicke dann im neuen Ordner auf **`Einrichten.cmd`**.
+Öffne Proton VPN und klicke auf **Verbinden**. Doppelklicke dann im neuen Ordner auf **`!Einrichten.cmd`**.
 
 Du siehst jetzt ein schwarzes Fenster. Es lädt zwei Hilfsprogramme und zeigt dabei einen Balken mit dem Fortschritt.
 
@@ -98,7 +98,7 @@ Vor jedem Video prüft das Programm erneut die Verbindung – ein kleines Symbol
 
 Das schwarze Fenster bleibt offen, solange du das Programm benutzt. Schließt du das Browserfenster, beendet sich alles von selbst.
 
-**Aktualisieren:** Starte **`Einrichten.cmd`** noch einmal. Es sucht eine neue Version und spielt sie ein – deine Einstellungen und Videos bleiben erhalten.
+**Aktualisieren:** Starte **`!Einrichten.cmd`** noch einmal. Es sucht eine neue Version und spielt sie ein – deine Einstellungen und Videos bleiben erhalten.
 
 <br>
 
@@ -108,7 +108,7 @@ Das schwarze Fenster bleibt offen, solange du das Programm benutzt. Schließt du
 Dein VPN ist nicht verbunden oder gerade unterbrochen. Verbinde Proton VPN und klicke auf **Jetzt prüfen**.
 
 **Beim Start erscheint „Netzsperre fehlt“ oder ein Download bricht sofort ab.**
-Der Schutz passt nicht mehr – zum Beispiel, weil du den Ordner verschoben hast oder sich in Proton etwas geändert hat. Verbinde Proton VPN und starte **`Einrichten.cmd`** noch einmal – es repariert das.
+Der Schutz passt nicht mehr – zum Beispiel, weil du den Ordner verschoben hast oder sich in Proton etwas geändert hat. Verbinde Proton VPN und starte **`!Einrichten.cmd`** noch einmal – es repariert das.
 
 **Ein Link zeigt „Fehler“ statt eines Titels.**
 Das Video gibt es nicht mehr, oder die Seite hat ihre Adresse geändert. Prüfe den Link im Browser. Klappt er dort, schreib uns – siehe Kontakt.
