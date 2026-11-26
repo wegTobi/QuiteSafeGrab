@@ -7,3 +7,4 @@
 voe_dl/** text eol=lf
 *.whl binary
 *.png binary
+*.ico binary

@@ -570,7 +570,14 @@ else {
 # ---------------------------------------------------------------- 9. Verknüpfung
 $desktop = [Environment]::GetFolderPath('Desktop')
 $lnk = Join-Path $desktop 'Quite Safe Grab.lnk'
-if (-not (Test-Path -LiteralPath $lnk)) {
+if (Test-Path -LiteralPath $lnk) {
+  # Vorhandene Verknüpfung auf diesen Ordner: Logo aktuell halten.
+  $shell = New-Object -ComObject WScript.Shell
+  $s = $shell.CreateShortcut($lnk)
+  if ($s.TargetPath -ieq (Join-Path $app 'Oberflaeche-starten.cmd') -and (Test-Path -LiteralPath (Join-Path $app 'logo.ico'))) {
+    $s.IconLocation = "$(Join-Path $app 'logo.ico'),0"; $s.Save()
+  }
+} else {
   Step 'Desktop-Verknüpfung'
   if (AskYesNo 'Verknüpfung "Quite Safe Grab" auf dem Desktop anlegen?' (-not $Defaults)) {
     $shell = New-Object -ComObject WScript.Shell
@@ -578,7 +585,7 @@ if (-not (Test-Path -LiteralPath $lnk)) {
     $s.TargetPath = Join-Path $app 'Oberflaeche-starten.cmd'
     $s.WorkingDirectory = $app
     $s.Description = 'Quite Safe Grab starten'
-    $s.IconLocation = "$env:SystemRoot\System32\shell32.dll,175"
+    $s.IconLocation = "$(Join-Path $app 'logo.ico'),0"
     $s.Save()
     Good "Angelegt: $lnk"
   }

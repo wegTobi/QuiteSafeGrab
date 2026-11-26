@@ -37,7 +37,10 @@ import syscompat as sc
 APP = Path(__file__).resolve().parent
 STATIC = {'/': ('index.html', 'text/html; charset=utf-8'),
           '/app.css': ('app.css', 'text/css; charset=utf-8'),
-          '/app.js': ('app.js', 'text/javascript; charset=utf-8')}
+          '/app.js': ('app.js', 'text/javascript; charset=utf-8'),
+          '/logo.png': ('logo.png', 'image/png'),
+          '/favicon.png': ('favicon.png', 'image/png'),
+          '/favicon.ico': ('favicon.png', 'image/png')}
 CSP = ("default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; "
        "base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 CHECK_KEYS = ('vpn', 'firewall', 'selftest', 'ipv4', 'ipv6', 'dns')

@@ -19,7 +19,7 @@ if ($Version -ne $fileVersion) { throw "Version $Version passt nicht zur Datei V
 
 $include = @(
   'grab.py', 'syscompat.py', 'winguard.py', 'fw.py', 'voe_resolver.py', 'ui.py',
-  'ui\index.html', 'ui\app.css', 'ui\app.js', 'VERSION', 'Einrichten.cmd', '.gitattributes',
+  'ui\index.html', 'ui\app.css', 'ui\app.js', 'ui\logo.png', 'ui\favicon.png', 'logo.ico', 'VERSION', 'Einrichten.cmd', '.gitattributes',
   'qsgrab.cmd', 'Oberflaeche-starten.cmd', 'setup.ps1', 'haertung.ps1', 'config.default.toml',
   'requirements.txt', 'requirements.lock', 'vendor-sha256.json',
   'README.md', 'docs\TECHNIK.md', 'docs\screenshot.png', 'docs\start.png', 'docs\warteschlange.png', 'LICENSE', 'THIRD_PARTY_NOTICES.md', '.gitignore'
