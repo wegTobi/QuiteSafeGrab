@@ -9,6 +9,7 @@ import json
 from pathlib import Path
 import re
 import sys
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -119,9 +120,62 @@ def resolve(url, hosts):
     raise ValueError('Zu viele VOE-Weiterleitungen')
 
 
+MAX_HOPS = 5
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None   # jede Weiterleitung einzeln pruefen (follow)
+
+
+def public_host(host):
+    """Nur oeffentliche Ziele: keine lokalen, privaten oder reservierten Adressen (auch nach DNS)."""
+    import ipaddress
+    import socket
+    try:
+        infos = socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM)
+    except OSError:
+        raise ValueError('Weiterleitungsziel nicht aufloesbar')
+    addresses = {ipaddress.ip_address(info[4][0].split('%')[0]) for info in infos}
+    if not addresses or not all(a.is_global for a in addresses):
+        raise ValueError('Weiterleitung auf lokale/private Adresse verweigert')
+
+
+def follow(url, hosts, check_host=public_host):
+    """Folgt echten HTTP-Weiterleitungen (3xx) bis zu einer VOE-Adresse aus hosts.
+
+    Kein JavaScript, keine Cookies, kein Referer, nur HTTPS, hoechstens MAX_HOPS Schritte.
+    Endet die Kette nicht bei einem konfigurierten VOE-Host, wird abgebrochen.
+    """
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
+    for _ in range(MAX_HOPS + 1):
+        valid_url(url)
+        p = urllib.parse.urlsplit(url)
+        if p.hostname in hosts:
+            return allowed_page(url, hosts)
+        if p.scheme != 'https' or p.port not in (None, 443):
+            raise ValueError('Weiterleitung nur ueber HTTPS')
+        check_host(p.hostname)
+        req = urllib.request.Request(url, headers={'User-Agent': UA})
+        try:
+            with opener.open(req, timeout=20) as response:
+                code, location = response.status, None
+        except urllib.error.HTTPError as exc:
+            code, location = exc.code, exc.headers.get('Location')
+            exc.close()
+        if code not in (301, 302, 303, 307, 308) or not location:
+            raise ValueError('Keine HTTP-Weiterleitung zu VOE (JavaScript-Weiterleitungen werden nicht ausgefuehrt)')
+        url = urllib.parse.urljoin(url, location)
+    raise ValueError('Zu viele Weiterleitungen')
+
+
 if __name__ == '__main__':
     try:
-        print(json.dumps(resolve(sys.argv[1], json.loads(sys.argv[2])), ensure_ascii=False))
+        hosts = json.loads(sys.argv[2])
+        start = sys.argv[1]
+        if urllib.parse.urlsplit(start).hostname not in hosts:
+            start = follow(start, hosts)
+        print(json.dumps(resolve(start, hosts), ensure_ascii=False))
     except Exception:
         # Never include the signed address or response body in persistent output.
         print('VOE_RESOLUTION_FAILED: Aufloesung fehlgeschlagen (Hostliste/Seitenformat/Erreichbarkeit pruefen).', file=sys.stderr)

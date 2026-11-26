@@ -659,8 +659,33 @@ def origin(url):
     return f'{p.scheme}://{p.netloc}/'
 
 
-def is_voe(url):
-    return bool(re.fullmatch('/e/[a-z0-9]+', urllib.parse.urlsplit(url).path))
+def is_voe(url, hosts=()):
+    p = urllib.parse.urlsplit(url)
+    if re.fullmatch('/e/[a-z0-9]+', p.path):
+        return True
+    # Auch https://voe.sx/<id> (ohne /e/) auf einem konfigurierten VOE-Host
+    return p.hostname in hosts and bool(re.fullmatch('/[a-z0-9]+/?', p.path))
+
+
+def voe_canonical(url):
+    return 'https://voe.sx/e/' + urllib.parse.urlsplit(url).path.strip('/').rsplit('/', 1)[-1]
+
+
+def run_voe_resolver(url, config, runner, work):
+    """Eigener Prozess: VOE-Seite auslesen (folgt bei fremden Hosts vorher nur echten HTTP-Weiterleitungen)."""
+    r = runner.run([sys.executable, '-I', str(APP / 'voe_resolver.py'), url, json.dumps(config['voe_hosts'])], timeout=120, cwd=work)
+    if r.code != 0 or r.timed_out:
+        return None
+    try:
+        info = json.loads(r.out)
+        return {'url': valid_url(info['url']), 'title': info.get('title')}
+    except (ValueError, KeyError, TypeError):
+        fail(4, 'VOE_RESOLUTION_INVALID', 'VOE lieferte keine eindeutige Medienadresse.')
+
+
+def voe_item(info, url, manual):
+    title = manual or info.get('title') or urllib.parse.urlsplit(url).path.rsplit('/', 1)[-1]
+    return {'name': video_name(title), 'media': info['url'], 'referer': 'https://voe.sx/', 'info': None, 'voe': True}
 
 
 def probe(config, runner, net, work):
@@ -685,23 +710,22 @@ def probe(config, runner, net, work):
 
 def resolve_item(url, manual, config, runner, net, work, baseline):
     valid_url(url)
-    if is_voe(url):
-        canonical = 'https://voe.sx' + urllib.parse.urlsplit(url).path
-        r = runner.run([sys.executable, '-I', str(APP / 'voe_resolver.py'), canonical, json.dumps(config['voe_hosts'])], timeout=120, cwd=work)
-        if r.code != 0 or r.timed_out:
+    if is_voe(url, config['voe_hosts']):
+        info = run_voe_resolver(voe_canonical(url), config, runner, work)
+        if not info:
             fail(4, 'VOE_RESOLUTION_FAILED', 'VOE-Aufloesung fehlgeschlagen; Hostliste/Erreichbarkeit pruefen.')
-        try:
-            info = json.loads(r.out)
-            media = valid_url(info['url'])
-            title = manual or info.get('title') or urllib.parse.urlsplit(url).path.rsplit('/', 1)[-1]
-        except (ValueError, KeyError, TypeError):
-            fail(4, 'VOE_RESOLUTION_INVALID', 'VOE lieferte keine eindeutige Medienadresse.')
-        return {'name': video_name(title), 'media': media, 'referer': 'https://voe.sx/', 'info': None, 'voe': True}
+        return voe_item(info, url, manual)
     args = ydl_common(origin(url)) + ['--skip-download', '--dump-single-json', '--', url]
     r = runner.run(args, timeout=120, cwd=work)
     if r.code and 'Unsupported URL' in r.err + r.out:
         net.check('IPv4 vor Generic-Aufloesung', baseline)
         r = runner.run(args[:-2] + ['--force-generic-extractor'] + args[-2:], timeout=120, cwd=work)
+    if (r.code != 0 or r.timed_out) and urllib.parse.urlsplit(url).scheme == 'https':
+        # Weiterleitungslink (z. B. einer Mediathek) auf VOE? Nur echte HTTP-Weiterleitungen, Ziel muss in voe_hosts liegen.
+        net.check('IPv4 vor Weiterleitungs-Aufloesung', baseline)
+        info = run_voe_resolver(url, config, runner, work)
+        if info:
+            return voe_item(info, url, manual)
     if r.code != 0 or r.timed_out:
         detail = safe_text((r.err + '\n' + r.out)[-2000:]).strip()
         fail(4, 'LINK_RESOLUTION_FAILED', f'Link nicht aufloesbar (yt-dlp Exit={r.code}, Timeout={r.timed_out}): {detail}')

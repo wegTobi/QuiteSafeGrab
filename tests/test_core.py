@@ -437,6 +437,49 @@ class TestCore(unittest.TestCase):
         self.assertEqual(result['url'], 'https://cdn.example/film.mp4')
         self.assertEqual(opened, ['https://voe.sx/abc', 'https://caseyseemavoid.com/e/abc'])
 
+    def test_voe_without_e_on_configured_host(self):
+        self.assertTrue(g.is_voe('https://voe.sx/abc123', ['voe.sx']))
+        self.assertFalse(g.is_voe('https://mediathek.example/abc123', ['voe.sx']))
+        self.assertEqual(g.voe_canonical('https://voe.sx/abc123'), 'https://voe.sx/e/abc123')
+        self.assertEqual(g.voe_canonical('https://x.example/e/abc123'), 'https://voe.sx/e/abc123')
+
+    def _redirect_opener(self, chain, seen):
+        class Opener:
+            def open(self, req, timeout):
+                seen.append((req.full_url, req.get_header('Referer'), req.get_header('Cookie')))
+                code, location = chain[req.full_url]
+                if location:
+                    raise voe.urllib.error.HTTPError(req.full_url, code, 'redirect', {'Location': location}, io.BytesIO())
+                r = io.BytesIO(b'<html></html>'); r.status = code
+                return contextlib.nullcontext(r)
+        return Opener()
+
+    def test_follow_redirect_chain_to_voe(self):
+        hosts = ['voe.sx', 'caseyseemavoid.com']
+        chain = {'https://mediathek.example/go/17': (302, '/out?id=17'),
+                 'https://mediathek.example/out?id=17': (301, 'https://voe.sx/abc')}
+        seen, checked = [], []
+        with patch.object(voe.urllib.request, 'build_opener', return_value=self._redirect_opener(chain, seen)):
+            self.assertEqual(voe.follow('https://mediathek.example/go/17', hosts, checked.append), 'https://voe.sx/abc')
+        self.assertEqual(checked, ['mediathek.example', 'mediathek.example'])
+        self.assertTrue(all(ref is None and cookie is None for _, ref, cookie in seen))
+
+    def test_follow_refuses_unsafe_targets(self):
+        hosts = ['voe.sx']
+        cases = [{'https://m.example/a': (200, None)},                              # keine HTTP-Weiterleitung (z. B. JavaScript)
+                 {'https://m.example/a': (302, 'http://voe.sx/abc')},               # nur HTTPS
+                 {'https://m.example/a': (302, 'https://other.example/x'),          # Ziel kein VOE-Host
+                  'https://other.example/x': (200, None)}]
+        loop = {'https://m.example/a': (302, 'https://m.example/a')}                # Schleife -> zu viele Schritte
+        for chain in cases + [loop]:
+            with patch.object(voe.urllib.request, 'build_opener', return_value=self._redirect_opener(chain, [])):
+                with self.assertRaises(ValueError):
+                    voe.follow('https://m.example/a', hosts, lambda h: None)
+        with self.assertRaises(ValueError):
+            voe.public_host('127.0.0.1')
+        with self.assertRaises(ValueError):
+            voe.public_host('192.168.1.10')
+
     def test_preview_protects_order_and_passes_only_names(self):
         events=[]
         class Net:
