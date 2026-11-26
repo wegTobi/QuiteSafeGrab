@@ -209,6 +209,9 @@ function renderQueue(st) {
   const ul = $('queue');
   ul.replaceChildren();
   $('queue-empty').hidden = st.queue.length > 0;
+  const done = st.queue.filter((x) => x.status === 'done').length;
+  $('queue-count').hidden = st.queue.length === 0;
+  $('queue-count').textContent = done + ' von ' + st.queue.length + ' fertig';
   for (const item of st.queue) {
     const li = el('li');
     const main = el('div', 'item-main');

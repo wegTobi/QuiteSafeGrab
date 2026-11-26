@@ -88,6 +88,8 @@ h2 { font-size: 15px; display: inline; }
 .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 52px 56px; margin-top: 16px; }
 .card { min-width: 0; }
 .card .card-head { margin-bottom: 14px; }
+.count { margin-left: 8px; font-size: 12px; font-weight: 400; color: var(--muted); font-variant-numeric: tabular-nums; }
+.count[hidden] { display: none; }
 
 /* Sicherheit als ruhige Statusliste im Hintergrund; Probleme (rot) fallen trotzdem auf. */
 .quiet .checks li { grid-template-columns: 8px 104px 1fr auto; gap: 10px; padding: 3px 0; border-top: none; font-size: 13px; align-items: center; }
