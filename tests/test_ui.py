@@ -69,11 +69,11 @@ class TestServerSecurity(ServerCase):
         # no-referrer wuerde Firefox/Mullvad bei POST "Origin: null" schicken lassen -> Knoepfe tot
         self.assertEqual(headers['Referrer-Policy'], 'same-origin')
         self.assertIn(b'<meta name="referrer" content="same-origin">', body)
+        self.assertEqual(headers['Cache-Control'], 'no-store')
 
     def test_origin_null_is_refused(self):
         status = self.request('POST', '/api/queue/add', {'urls': ['https://a.example/x.mp4']}, headers={'Origin': 'null'})[0]
         self.assertEqual(status, 403)
-        self.assertEqual(headers['Cache-Control'], 'no-store')
 
     def test_page_has_no_external_resources(self):
         root = Path(ui.__file__).with_name('ui')
