@@ -260,7 +260,8 @@ if (-not $arch) { throw "Nicht unterstützte Prozessorarchitektur: $($env:PROCES
 Info "Windows, Architektur $arch"
 $state = Read-State
 $installed = (Test-Path -LiteralPath $cfgFile) -and (Test-Path -LiteralPath $pyExe)
-if ($installed) { Info "Vorhandene Einrichtung erkannt$(if ($state -and $state.app_version) { " (Version $($state.app_version))" }) – es wird nur aktualisiert, was nötig ist." }
+if ($installed -and $AfterUpdate) { Info "Programmdateien auf Version $appVersion aktualisiert – jetzt wird der Rest geprüft." }
+elseif ($installed) { Info "Vorhandene Einrichtung erkannt$(if ($state -and $state.app_version) { " (Version $($state.app_version))" }) – es wird nur aktualisiert, was nötig ist." }
 else { Info 'Neue Einrichtung.' }
 if (Test-Path -LiteralPath (Join-Path $app 'venv')) { Warn 'Ordner venv aus einer älteren Einrichtung gefunden – wird nicht mehr benutzt und kann gelöscht werden.' }
 

@@ -53,6 +53,11 @@ foreach ($f in $files) {
 }
 if ($hits) { $hits | ForEach-Object { Write-Host "  $_" }; throw 'Persoenliche Angaben gefunden - nichts gepackt.' }
 
+# ---- Windows-Zeilenenden: cmd.exe liest Batchdateien mit reinem LF fehlerhaft (vor allem, wenn ein Update sie ersetzt)
+$lfOnly = @($files | Where-Object { $_ -match '\.(cmd|ps1)$' } | Where-Object {
+  [IO.File]::ReadAllText((Join-Path $PSScriptRoot $_)) -match "(?<!`r)`n" })
+if ($lfOnly) { throw "Ohne CRLF-Zeilenenden: $($lfOnly -join ', ') (git rm --cached -r . ; git reset --hard)" }
+
 # ---- Packen
 $name = "QuiteSafeGrab-Windows-$Version"
 $dist = Join-Path $PSScriptRoot 'dist'
