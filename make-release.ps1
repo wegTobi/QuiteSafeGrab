@@ -1,4 +1,4 @@
-# Baut das Release-ZIP fuer GitHub aus einer festen Liste von Dateien (nur fuer den Entwickler).
+# Baut das Release-ZIP fuer GitHub aus den von Git verwalteten Dateien (nur fuer den Entwickler).
 #   powershell -ExecutionPolicy Bypass -File .\make-release.ps1          (Version aus der Datei VERSION)
 # Lokale Dateien (config.toml, python\, lib\, tools\, venv\, Downloads, Arbeitsordner) kommen nie hinein.
 # Vor dem Packen wird jede Textdatei nach persoenlichen Angaben dieses PCs durchsucht
@@ -17,24 +17,18 @@ $fileVersion = (Get-Content -LiteralPath 'VERSION' -TotalCount 1).Trim()
 if (-not $Version) { $Version = $fileVersion }
 if ($Version -ne $fileVersion) { throw "Version $Version passt nicht zur Datei VERSION ($fileVersion). Erst VERSION anpassen." }
 
-$include = @(
-  'grab.py', 'syscompat.py', 'winguard.py', 'fw.py', 'voe_resolver.py', 'ui.py',
-  'ui\index.html', 'ui\app.css', 'ui\app.js', 'ui\logo.png', 'ui\favicon.png', 'logo.ico', 'VERSION', 'Einrichten.cmd', '.gitattributes',
-  'qsgrab.cmd', 'Oberflaeche-starten.cmd', 'setup.ps1', 'haertung.ps1', 'config.default.toml',
-  'requirements.txt', 'requirements.lock', 'vendor-sha256.json',
-  'README.md', 'docs\TECHNIK.md', 'docs\screenshot.png', 'docs\logo.png', 'docs\start.png', 'docs\warteschlange.png', 'LICENSE', 'THIRD_PARTY_NOTICES.md', '.gitignore'
-)
-$includeDirs = @{ 'voe_dl' = '*.py'; 'tests' = '*.py'; 'wheels' = '*.whl' }
-
+# Inhalt = alle Dateien, die Git verwaltet (lokale/persoenliche Dateien schliesst .gitignore aus),
+# abzueglich reiner Entwicklerwerkzeuge. Neue Dateien kommen so automatisch mit.
+$devOnly = @('make-release.ps1')
+$untracked = @(git ls-files --others --exclude-standard)
+if ($LASTEXITCODE -ne 0) { throw 'git ist noetig (Dateiliste kommt aus dem Repository).' }
+if ($untracked) { throw "Nicht in Git und nicht ignoriert - erst 'git add' oder in .gitignore eintragen: $($untracked -join ', ')" }
 $files = New-Object System.Collections.Generic.List[string]
-foreach ($f in $include) {
-  if (-not (Test-Path -LiteralPath $f -PathType Leaf)) { throw "Fehlt: $f" }
-  $files.Add($f)
-}
-foreach ($d in $includeDirs.Keys) {
-  Get-ChildItem -LiteralPath $d -Recurse -File -Filter $includeDirs[$d] |
-    Where-Object { $_.FullName -notmatch '\\__pycache__\\' } |
-    ForEach-Object { $files.Add($_.FullName.Substring($PSScriptRoot.Length + 1)) }
+foreach ($f in @(git ls-files)) {
+  if ($devOnly -contains $f) { continue }
+  $path = $f.Replace('/', '\')
+  if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "In Git, aber nicht vorhanden: $path" }
+  $files.Add($path)
 }
 
 # ---- Suche nach persoenlichen Angaben

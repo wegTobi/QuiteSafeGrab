@@ -57,7 +57,6 @@ $appVersion = (Get-Content -LiteralPath (Join-Path $app 'VERSION') -TotalCount 1
 # Farben: alles grau, Eingaben grün, Warnungen gelb.
 function Step([string]$text) { Write-Host ''; Write-Host "== $text" -ForegroundColor Gray }
 function Info([string]$text) { Write-Host "   $text" -ForegroundColor Gray }
-function Good([string]$text) { Write-Host "   $text" -ForegroundColor Gray }
 function Warn([string]$text) { Write-Host "   $text" -ForegroundColor Yellow }
 function Question([string]$number, [string]$title, [string[]]$explain) {
   # Eine Frage als eigener, abgesetzter Block.
@@ -173,7 +172,7 @@ function Get-Verified([string]$url, [string]$sha, [string]$given, [string]$what)
   }
   if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Force }
   Move-Item -LiteralPath $part -Destination $path
-  Good "Prüfsumme stimmt: $name"
+  Info "Prüfsumme stimmt: $name"
   return $path
 }
 
@@ -235,7 +234,7 @@ function Test-Config {
 }
 
 function Get-VpnStatus {
-  # Exitcode von "fw.py status": 0 = Netzsperre passt, 2 = fehlt/passt nicht/kein VPN
+  # Exitcode von "fw.py status": 0 = Netzsperre passt, 2 = fehlt/passt nicht, 3 = kein VPN
   return Invoke-Py @('-I', (Join-Path $app 'fw.py'), 'status') 'Prüfe VPN und Firewall-Regeln'
 }
 
@@ -261,7 +260,7 @@ if (-not $arch) { throw "Nicht unterstützte Prozessorarchitektur: $($env:PROCES
 Info "Windows, Architektur $arch"
 $state = Read-State
 $installed = (Test-Path -LiteralPath $cfgFile) -and (Test-Path -LiteralPath $pyExe)
-if ($installed) { Good "Vorhandene Einrichtung erkannt$(if ($state -and $state.app_version) { " (Version $($state.app_version))" }) – es wird nur aktualisiert, was nötig ist." }
+if ($installed) { Info "Vorhandene Einrichtung erkannt$(if ($state -and $state.app_version) { " (Version $($state.app_version))" }) – es wird nur aktualisiert, was nötig ist." }
 else { Info 'Neue Einrichtung.' }
 if (Test-Path -LiteralPath (Join-Path $app 'venv')) { Warn 'Ordner venv aus einer älteren Einrichtung gefunden – wird nicht mehr benutzt und kann gelöscht werden.' }
 
@@ -278,7 +277,7 @@ if ($installed -and -not $AfterUpdate -and -not $NoUpdateCheck -and -not $Offlin
       $latest = ($release.tag_name -replace '^[vV]', '')
       $newer = $false
       try { $newer = [version]$latest -gt [version]$appVersion } catch { Warn "Unbekanntes Versionsformat auf GitHub: $($release.tag_name)" }
-      if (-not $newer) { Good "Du hast die aktuelle Version ($appVersion)." }
+      if (-not $newer) { Info "Du hast die aktuelle Version ($appVersion)." }
       else {
         Info "Neue Version verfügbar: $latest (installiert: $appVersion)."
         if (AskYesNo "Version $latest jetzt herunterladen und einspielen? (Einstellungen und Videos bleiben erhalten)" $true) {
@@ -307,7 +306,7 @@ if ($installed -and -not $AfterUpdate -and -not $NoUpdateCheck -and -not $Offlin
             Copy-Item -LiteralPath $f.FullName -Destination $target -Force
           }
           Remove-Item -LiteralPath $stage -Recurse -Force
-          Good "Version $latest eingespielt. Starte die neue Einrichtung ..."
+          Info "Version $latest eingespielt. Starte die neue Einrichtung ..."
           $passOn = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $app 'setup.ps1'), '-AfterUpdate')
           if ($Defaults) { $passOn += '-Defaults' }
           & powershell.exe @passOn
@@ -328,7 +327,7 @@ if (Test-Path -LiteralPath $pyDir) {
     $v = Invoke-Py @('-I', '-c', 'import platform;print(platform.python_version())')
     if ($v.Code -eq 0) { $have = $v.Text[-1].Trim() }
   }
-  if ($have -eq $PY_VERSION) { Good "Aktuell: Python $have"; $needPython = $false }
+  if ($have -eq $PY_VERSION) { Info "Aktuell: Python $have"; $needPython = $false }
   elseif (-not (Test-Path -LiteralPath $pth) -and -not (Get-ChildItem -LiteralPath $pyDir -Filter 'python3*._pth' -ErrorAction SilentlyContinue)) {
     throw 'Ordner python existiert, ist aber keine Quite-Safe-Grab-Laufzeit (z. B. aus einer alten Einrichtung). Ordner python löschen und erneut starten.'
   } else {
@@ -344,7 +343,7 @@ if ($needPython) {
   if (-not (Test-Path -LiteralPath (Join-Path $tmp "$PY_TAG._pth"))) { Remove-Item -LiteralPath $tmp -Recurse -Force; throw "Python-Paket ohne $PY_TAG._pth – unerwarteter Inhalt." }
   if (Test-Path -LiteralPath $pyDir) { Remove-Item -LiteralPath $pyDir -Recurse -Force }   # gleicher Pfad: Firewallregel bleibt gültig
   Move-Item -LiteralPath $tmp -Destination $pyDir
-  Good "Python $PY_VERSION eingerichtet."
+  Info "Python $PY_VERSION eingerichtet."
 }
 # Suchpfade: Standardbibliothek, Programmordner (..) und Abhängigkeiten (..\lib). Keine site-packages, keine Umgebungsvariablen.
 [IO.File]::WriteAllText($pth, "$PY_TAG.zip`r`n.`r`n..`r`n..\lib`r`n", (New-Object Text.UTF8Encoding($false)))
@@ -353,7 +352,7 @@ if ($needPython) {
 Step 'Python-Abhängigkeiten (nur aus .\wheels, SHA256-geprüft)'
 $lockSha = Get-Sha256 (Join-Path $app 'requirements.lock')
 if ($state -and $state.lock_sha256 -eq $lockSha -and (Test-Path -LiteralPath $libDir) -and -not $needPython) {
-  Good 'Aktuell.'
+  Info 'Aktuell.'
 } else {
   $locked = Read-LockHashes
   $seen = @{}
@@ -389,7 +388,7 @@ if ((Test-Path -LiteralPath $ffExe) -and (Test-Path -LiteralPath $fpExe)) {
 }
 $ffNewer = $false
 if ($haveFf) { try { $ffNewer = [version]$FF_VERSION -gt [version]$haveFf } catch { $ffNewer = $false } }
-if ($haveFf -and -not $ffNewer) { Good "Aktuell: FFmpeg $haveFf" }
+if ($haveFf -and -not $ffNewer) { Info "Aktuell: FFmpeg $haveFf" }
 else {
   if ($haveFf) { Info "Vorhanden: FFmpeg $haveFf – Update auf $FF_VERSION." }
   $zip = Get-Verified $FF_URL $FF_SHA256 $FfmpegZip 'FFmpeg-Paket'
@@ -403,7 +402,7 @@ else {
       [IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $target, $true)
     }
   } finally { $archive.Dispose() }
-  Good "FFmpeg $FF_VERSION eingerichtet."
+  Info "FFmpeg $FF_VERSION eingerichtet."
   $haveFf = $FF_VERSION
 }
 if ($arch -eq 'arm64') { Info 'Hinweis: FFmpeg ist ein x64-Programm und läuft auf ARM64 per Emulation.' }
@@ -413,7 +412,7 @@ Step 'Einstellungen'
 $askSettings = -not (Test-Path -LiteralPath $cfgFile) -or $Reconfigure
 if (-not $askSettings) {
   if (Test-Config) {
-    Good 'config.toml vorhanden und gültig.'
+    Info 'config.toml vorhanden und gültig.'
     $askSettings = AskYesNo 'Einstellungen ändern (Heimatland, Speicherort, VPN)?' $false
   } else {
     Warn 'config.toml ist ungültig oder unvollständig (z. B. nach einem Update) – bitte neu abfragen.'
@@ -422,6 +421,7 @@ if (-not $askSettings) {
 }
 if ($askSettings) {
   $text = [IO.File]::ReadAllText((Join-Path $app 'config.default.toml'))
+  $templateCountry = [regex]::Match($text, '(?m)^\s*home_country\s*=\s*"([A-Z]{2})"').Groups[1].Value
 
   # -- Frage 1: Heimatland (Vorschlag aus den Windows-Regionseinstellungen)
   $region = [Globalization.RegionInfo]::CurrentRegion
@@ -436,20 +436,22 @@ if ($askSettings) {
     Info 'Unbekanntes Kürzel. Beispiele: DE, AT, CH, NL, FR.'
   }
   $names = @($r.EnglishName, $r.NativeName, $r.DisplayName) | Where-Object { $_ } | Select-Object -Unique
-  Good "Heimatland: $cc ($($names -join ', '))"
+  Info "Heimatland: $cc ($($names -join ', '))"
   $text = Set-TomlKey $text 'home_country' (Toml-String $cc)
   $text = Set-TomlKey $text 'home_country_names' (Toml-List $names)
 
   # Internetanbieter: keine Frage. Zusatzsicherung mit bekannten Anbietern des Landes (DE/AT/CH);
   # den eigentlichen Schutz trägt die Heimatland-Prüfung. Automatisch erkennen ginge nur über
   # einen Geodienst mit der echten Adresse (ohne VPN) - das wäre ein Datenleck.
+  # Für das Land der Vorlage (config.default.toml) gelten deren Anbieter; sonst Vorgabe je Land oder leer.
   $ispPresets = @{
-    'DE' = @('Deutsche Telekom', 'Vodafone', '1&1', 'Telefónica', 'Unitymedia')
     'AT' = @('A1 Telekom', 'Magenta', 'Hutchison Drei', 'UPC')
     'CH' = @('Swisscom', 'Sunrise', 'Salt', 'UPC')
   }
-  $isps = if ($ispPresets.ContainsKey($cc)) { $ispPresets[$cc] } else { @() }
-  $text = Set-TomlKey $text 'blocked_orgs' (Toml-List $isps)
+  if ($cc -ne $templateCountry) {
+    $isps = if ($ispPresets.ContainsKey($cc)) { $ispPresets[$cc] } else { @() }
+    $text = Set-TomlKey $text 'blocked_orgs' (Toml-List $isps)
+  }
 
   # -- Frage 2: Speicherort
   $defaultStore = Join-Path $env:USERPROFILE 'Videos\QuiteSafeGrab'
@@ -465,25 +467,22 @@ if ($askSettings) {
     if ($inOneDrive -and -not (AskYesNo 'Der Ordner liegt in OneDrive und würde synchronisiert. Trotzdem verwenden?' $false)) { continue }
     break
   }
-  Good "Speicherort: $full"
+  Info "Speicherort: $full"
   $text = Set-TomlKey $text 'storage' (Toml-String $full)
 
   # -- VPN: Proton wird erkannt, nur sonst wird gefragt
   $protonInstalled = (Test-Path -LiteralPath (Join-Path $env:ProgramFiles 'Proton\VPN')) -or
     [bool](Get-ItemProperty 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*', 'HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*', 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*' -ErrorAction SilentlyContinue |
            Where-Object { $_.DisplayName -match '^Proton ?VPN' })
+  # Die Vorlage enthält bereits die Proton-Werte (vpn_adapter_patterns, allowed_patterns).
   if ($protonInstalled) {
-    $text = Set-TomlKey $text 'vpn_adapter_patterns' (Toml-List @('Proton', 'ProTUN'))
-    $text = Set-TomlKey $text 'allowed_patterns' (Toml-List @('Proton', 'M247', 'Datacamp', 'WorldStream'))
-    Good 'VPN: Proton VPN erkannt.'
+    Info 'VPN: Proton VPN erkannt.'
   } else {
     Question '[+]' 'Kein Proton VPN gefunden' @(
       'Quite Safe Grab lädt nur über ein aktives VPN. Empfohlen und getestet ist Proton VPN (https://protonvpn.com).',
       'Ein anderes VPN geht auch, wenn es einen eigenen Netzwerkadapter hat (z. B. Mullvad, NordVPN mit WireGuard/OpenVPN).')
     $vpnChoice = Choose 'Wie weiter?' @('Ich installiere Proton VPN später (Einstellungen für Proton übernehmen)', 'Ich nutze ein anderes VPN – es ist jetzt verbunden') 1
     if ($vpnChoice -eq 1) {
-      $text = Set-TomlKey $text 'vpn_adapter_patterns' (Toml-List @('Proton', 'ProTUN'))
-      $text = Set-TomlKey $text 'allowed_patterns' (Toml-List @('Proton', 'M247', 'Datacamp', 'WorldStream'))
       Warn 'Proton-Einstellungen übernommen. Nach der Installation von Proton: Einrichten.cmd erneut starten (für die Netzsperre).'
     } else {
       $adapters = @(Get-NetAdapter | Where-Object Status -eq 'Up' | Sort-Object Name)
@@ -506,14 +505,14 @@ if ($askSettings) {
     (Join-Path $env:LOCALAPPDATA 'Mullvad\MullvadBrowser\Release\mullvadbrowser.exe'),
     (Join-Path $env:ProgramFiles 'Mullvad Browser\Browser\mullvadbrowser.exe')
   ) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
-  if ($mullvad) { Good 'Browser für die Oberfläche: Mullvad Browser.' }
+  if ($mullvad) { Info 'Browser für die Oberfläche: Mullvad Browser.' }
   else { Info 'Browser für die Oberfläche: Edge (eigenes, leeres Profil). Tipp: Mit installiertem Mullvad Browser (https://mullvad.net/browser) nimmt Quite Safe Grab automatisch diesen.' }
 
   if (Test-Path -LiteralPath $cfgFile) { Copy-Item -LiteralPath $cfgFile -Destination "$cfgFile.bak" -Force; Info 'Alte Einstellungen gesichert: config.toml.bak' }
   [IO.File]::WriteAllText($cfgFile, $text, (New-Object Text.UTF8Encoding($false)))
   if (-not (Test-Config)) { throw 'Die neue config.toml ist ungültig – bitte Einrichten.cmd erneut starten.' }
   Write-Host ''
-  Good "Einstellungen gespeichert: $cfgFile"
+  Info "Einstellungen gespeichert: $cfgFile"
 }
 
 # ---------------------------------------------------------------- 7. Aufräumen und Stand merken
@@ -528,7 +527,7 @@ Write-State ([ordered]@{ app_version = $appVersion; python = $PY_VERSION; ffmpeg
 Step 'Netzsperre (Windows-Firewall)'
 Info 'Firewall-Regeln erlauben den Programmen von Quite Safe Grab nur den Weg über das VPN.'
 $fw = Get-VpnStatus
-function Test-VpnDown($status) { ($status.Text -join "`n") -match 'KEINER aktiv|nicht pruefbar' }
+function Test-VpnDown($status) { $status.Code -eq 3 }   # fw.py status: 3 = kein VPN verbunden
 if ($fw.Code -ne 0 -and (Test-VpnDown $fw)) {
   Warn 'Dein VPN ist nicht verbunden – deshalb kann die Netzsperre gerade nicht geprüft werden.'
   if (-not $Defaults) {
@@ -541,7 +540,7 @@ if ($fw.Code -ne 0 -and (Test-VpnDown $fw)) {
     }
   }
 }
-if ($fw.Code -eq 0) { Good 'Netzsperre vollständig und passend.' }
+if ($fw.Code -eq 0) { Info 'Netzsperre vollständig und passend.' }
 elseif (Test-VpnDown $fw) { Warn 'Übersprungen. Später mit verbundenem VPN: Einrichten.cmd erneut starten.' }
 else {
   Info 'Die Netzsperre fehlt für diesen Ordner oder passt nicht mehr zur VPN-Adresse.'
@@ -563,7 +562,7 @@ else {
     if ($r.Code -ne 0 -and (($r.Text -join "`n") -match 'abgebrochen')) { Warn 'Die Windows-Abfrage wurde abgelehnt oder geschlossen.' }
     $fw = Get-VpnStatus
   }
-  if ($fw.Code -eq 0) { Good 'Netzsperre vollständig und passend.' }
+  if ($fw.Code -eq 0) { Info 'Netzsperre vollständig und passend.' }
   else { Warn 'Netzsperre noch nicht eingerichtet – ohne sie startet kein Download. Später: Einrichten.cmd erneut starten.' }
 }
 
@@ -587,7 +586,7 @@ if (Test-Path -LiteralPath $lnk) {
     $s.Description = 'Quite Safe Grab starten'
     $s.IconLocation = "$(Join-Path $app 'logo.ico'),0"
     $s.Save()
-    Good "Angelegt: $lnk"
+    Info "Angelegt: $lnk"
   }
 }
 

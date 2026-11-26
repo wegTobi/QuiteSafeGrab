@@ -272,7 +272,7 @@ def ps_quote(text):
 
 
 def _remove_lines():
-    # Eigene Regeln und solche aus Versionen vor der Umbenennung (QuiteSafeGrab-*) entfernen.
+    # Eigene Regeln und solche aus Versionen vor der Umbenennung (PiGrab-*) entfernen.
     return [f"Get-NetFirewallRule -Name '{p}*' -ErrorAction SilentlyContinue | Remove-NetFirewallRule"
             for p in (RULE_PREFIX,) + LEGACY_RULE_PREFIXES]
 

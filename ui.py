@@ -43,13 +43,7 @@ STATIC = {'/': ('index.html', 'text/html; charset=utf-8'),
           '/favicon.ico': ('favicon.png', 'image/png')}
 CSP = ("default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; "
        "base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
-CHECK_KEYS = ('vpn', 'firewall', 'selftest', 'ipv4', 'ipv6', 'dns')
-# Fehler-ID -> betroffene Pruefung (fuer Fehler, die ohne eigenes check-Ereignis enden)
-ERROR_CHECK = {'GUARD_QUERY_FAILED': 'firewall', 'GUARD_QUERY_INVALID': 'firewall', 'FIREWALL_DISABLED': 'firewall',
-               'FIREWALL_RULES_MISSING': 'firewall', 'FIREWALL_BLOCKS_VPN': 'firewall',
-               'TUNNEL_STATUS_UNAVAILABLE': 'ipv4', 'EXIT_IP_CHANGED': 'ipv4', 'NETWORK_CHECK_ERROR': 'ipv4',
-               'DNS_RESOLVER_FAILED': 'dns', 'DNS_RESOLVER_AMBIGUOUS': 'dns', 'DNS_RESOLVER_INVALID': 'dns',
-               'DNS_GEO_FAILED': 'dns'}
+CHECK_KEYS = g.CHECK_KEYS
 DEBUG = False
 MAX_BODY = 64 * 1024
 MAX_QUEUE = 200
@@ -85,8 +79,8 @@ class State:
         self.last_check = None
         self.load_checks()
         self.queue = []
-        self.current = None        # laufender Auftrag (dict) oder None
-        self.mode = 'idle'         # idle | download | check
+        self.current = None
+        self.mode = 'idle'         # idle | check | preview | download
         self.stop_requested = False
         self.banner = None         # {'level', 'text'}
         self.log = collections.deque(maxlen=300)
@@ -181,8 +175,8 @@ class State:
                                    'message': g.safe_text(ev.get('message', ''))[:500]})
         elif kind == 'error':
             ident = str(ev.get('ident', ''))
-            key = ERROR_CHECK.get(ident)
-            if key and (self.checks.get(key) is None or self.checks[key].get('ok') is not False or self.checks[key].get('stale')):
+            key = ev.get('check')   # betroffene Ampel, von grab.py mitgeschickt
+            if key in self.checks and (self.checks.get(key) is None or self.checks[key].get('ok') is not False or self.checks[key].get('stale')):
                 self.set_check(key, False, ev.get('message', ident))
             if cur is not None:
                 cur['error'] = {'ident': ident, 'code': ev.get('code'), 'message': g.safe_text(ev.get('message', ''))[:500]}

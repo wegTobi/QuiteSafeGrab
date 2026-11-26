@@ -192,6 +192,18 @@ class TestEvents(unittest.TestCase):
         self.assertEqual(ev['type'], 'error')
         self.assertNotIn('signed.example', ev['message'])
 
+    def test_error_event_names_affected_check(self):
+        old = g.EVENTS
+        g.EVENTS = True
+        self.addCleanup(setattr, g, 'EVENTS', old)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+            g.error(g.Failure(2, 'DNS_GEO_FAILED', 'x'))
+            g.error(g.Failure(4, 'LINK_RESOLUTION_FAILED', 'y'))
+        evs = [json.loads(l[len(g.EVENT_PREFIX):]) for l in out.getvalue().splitlines()]
+        self.assertEqual([e['check'] for e in evs], ['dns', None])
+        self.assertTrue(set(g.ERROR_CHECK.values()) <= set(g.CHECK_KEYS))
+
     def test_progress_lines(self):
         old = g.EVENTS
         g.EVENTS = True
@@ -224,7 +236,7 @@ class TestEvents(unittest.TestCase):
         s.handle_event({'type': 'phase', 'phase': 'download'})
         s.handle_event({'type': 'progress', 'phase': 'download', 'percent': 12.5, 'speed': '2MiB/s', 'eta': '00:10', 'total': '100MiB'})
         s.handle_event({'type': 'title', 'name': 'Big_Buck_Bunny'})
-        s.handle_event({'type': 'error', 'ident': 'DNS_GEO_FAILED', 'code': 2, 'message': 'Keine Geodaten'})
+        s.handle_event({'type': 'error', 'ident': 'DNS_GEO_FAILED', 'code': 2, 'message': 'Keine Geodaten', 'check': 'dns'})
         self.assertTrue(s.checks['ipv4']['ok'])
         self.assertFalse(s.checks['dns']['ok'])
         self.assertEqual((s.current['percent'], s.current['title']), (12.5, 'Big_Buck_Bunny'))

@@ -115,13 +115,22 @@ def progress_event(line):
          eta=None if not eta or eta == 'Unknown' else eta)
 
 
+CHECK_KEYS = ('vpn', 'firewall', 'selftest', 'ipv4', 'ipv6', 'dns')
+# Fehler, die ohne eigenes check-Ereignis enden -> welche Pruefung (Ampel) sie betreffen.
+ERROR_CHECK = {'GUARD_QUERY_FAILED': 'firewall', 'GUARD_QUERY_INVALID': 'firewall', 'FIREWALL_DISABLED': 'firewall',
+               'FIREWALL_RULES_MISSING': 'firewall', 'FIREWALL_BLOCKS_VPN': 'firewall',
+               'TUNNEL_STATUS_UNAVAILABLE': 'ipv4', 'EXIT_IP_CHANGED': 'ipv4', 'NETWORK_CHECK_ERROR': 'ipv4',
+               'DNS_RESOLVER_FAILED': 'dns', 'DNS_RESOLVER_AMBIGUOUS': 'dns', 'DNS_RESOLVER_INVALID': 'dns',
+               'DNS_GEO_FAILED': 'dns'}
+
+
 def check_key(label):
     return 'ipv6' if label.startswith('IPv6') else 'dns' if label.startswith('DNS') else 'ipv4'
 
 
 def error(exc):
     print(f'FEHLER: ID={exc.ident}; EXIT_CODE={exc.code}; MESSAGE={safe_text(exc)}', file=sys.stderr)
-    emit('error', ident=exc.ident, code=exc.code, message=str(exc))
+    emit('error', ident=exc.ident, code=exc.code, message=str(exc), check=ERROR_CHECK.get(exc.ident))
 
 
 def video_name(title):
@@ -334,7 +343,7 @@ class Store:
                     locked_file(path / '.active.lock').close()
                     shutil.rmtree(path)
                     removed += 1
-                except OSError:  # auch BlockingIOError/PermissionError
+                except OSError:
                     print(f'WARNUNG: Alter Arbeitsordner bleibt (aktiv/gesperrt/unsicher): {path.name}')
         print(f'Arbeitsordner bereinigt: {removed} (älter als 24 Stunden).')
         return removed
@@ -907,31 +916,41 @@ def read_preview_urls(stream):
     return urls
 
 
+def resolve_titles(urls, config, runner, net, work, baseline, manual=None):
+    """Titel aller Links ermitteln (Kommandozeile und Oberflaeche): Pruefpunkt vor jedem Eintrag und
+    danach. Ein Sicherheitsabbruch (Exit 2) beendet sofort; ein nicht aufloesbarer Link wird gemeldet
+    und der naechste geprueft. Liefert (Index, Name oder None, Failure oder None) - nur den Namen,
+    nie signierte Medienadressen."""
+    for i, url in enumerate(urls):
+        emit('preview_start', index=i)
+        print(f'Pruefe Link {i+1}/{len(urls)}...')
+        try:
+            # Auch je Eintrag pruefen: Eingabe und Aufloesung koennen dauern.
+            net.check('IPv4 vor Vorschau-Eintrag', baseline)
+            name = resolve_item(url, f'{manual}_{i+1}' if manual else None, config, runner, net, work, baseline)['name']
+        except Failure as exc:
+            if exc.code == 2:
+                raise
+            yield i, None, exc
+            continue
+        yield i, name, None
+    net.check('IPv4 nach Vorschau', baseline)
+
+
 def preview(config, runner, net, store, urls):
-    """Titel aller Links ermitteln, ohne herunterzuladen - mit denselben Pruefpunkten wie die
-    interaktive Vorschau (vor jedem Eintrag und danach). Ein Sicherheitsabbruch (Exit 2) beendet
-    sofort; ein nicht aufloesbarer Link wird gemeldet und der naechste geprueft."""
+    """--preview fuer die Oberflaeche: Titel ermitteln, ohne herunterzuladen."""
     phase('preview')
+    failed = 0
     with store.workspace() as work:
         baseline = net.check('IPv4 vor Vorschau')
-        failed = 0
-        for i, url in enumerate(urls):
-            emit('preview_start', index=i)
-            print(f'Pruefe Link {i+1}/{len(urls)}...')
-            try:
-                net.check('IPv4 vor Vorschau-Eintrag', baseline)
-                item = resolve_item(url, None, config, runner, net, work, baseline)
-                print(f'{i+1}. OK: ' + safe_text(item['name']))
-                emit('preview', index=i, ok=True, name=item['name'], voe=item['voe'])
-                # Nur den Namen behalten, nie signierte Medienadressen.
-                del item
-            except Failure as exc:
-                if exc.code == 2:
-                    raise
+        for i, name, exc in resolve_titles(urls, config, runner, net, work, baseline):
+            if exc is None:
+                print(f'{i+1}. OK: ' + safe_text(name))
+                emit('preview', index=i, ok=True, name=name)
+            else:
                 failed += 1
                 print(f'{i+1}. FEHLER: ' + safe_text(exc))
                 emit('preview', index=i, ok=False, ident=exc.ident, code=exc.code, message=str(exc))
-        net.check('IPv4 nach Vorschau', baseline)
     emit('previewed', total=len(urls), failed=failed)
     return 0
 
@@ -982,20 +1001,9 @@ def interactive(config, runner, net, store, manual=None):
     try:
         with store.workspace() as work:
             baseline = probe(config, runner, net, work)
-            for i, url in enumerate(urls):
-                print(f'Pruefe Link {i+1}/{len(urls)}...')
-                try:
-                    # Recheck per preview item too, since input/requests can take time.
-                    net.check('IPv4 vor Vorschau-Eintrag', baseline)
-                    item = resolve_item(url, f'{manual}_{i+1}' if manual else None, config, runner, net, work, baseline)
-                    entries.append({'url': url, 'name': item['name'], 'valid': True})
-                    # Retain only names and original URLs, never signed media info.
-                    del item
-                except Failure as exc:
-                    if exc.code == 2:
-                        raise
-                    entries.append({'url': url, 'name': '', 'valid': False, 'error': safe_text(exc)})
-            net.check('IPv4 nach Vorschau', baseline)
+            for i, name, exc in resolve_titles(urls, config, runner, net, work, baseline, manual):
+                entries.append({'url': urls[i], 'name': name, 'valid': True} if exc is None else
+                               {'url': urls[i], 'name': '', 'valid': False, 'error': safe_text(exc)})
     except Failure as exc:
         error(exc)
         print(f'Warteschlange: 0 erfolgreich, 0 übersprungen, {len(urls)} abgebrochen')

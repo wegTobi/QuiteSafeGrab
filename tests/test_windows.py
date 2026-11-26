@@ -176,6 +176,21 @@ class TestWinguardLogic(unittest.TestCase):
             with self.assertRaises(ValueError):
                 winguard.build_apply_script([bad], [VPN_IP])
 
+    def test_fw_status_codes_and_relaunch_keep_config(self):
+        import fw
+        st = state()
+        with patch.object(fw, 'query', return_value=(st, [], [])), patch.object(g, 'guard_programs', return_value=PROGRAMS), \
+             contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(fw.status(CONFIG), fw.STATUS_NO_VPN)   # kein VPN: eigener Code, kein Textvergleich
+        vpn = winguard.vpn_adapters(st, ['proton'])
+        with patch.object(fw, 'query', return_value=(st, vpn, [VPN_IP])), patch.object(g, 'guard_programs', return_value=PROGRAMS), \
+             contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(fw.status(CONFIG), fw.STATUS_OK)
+        script = fw.relaunch_script('apply', r'D:\Eigene Konfig\config.toml')
+        self.assertIn('--config', script)
+        self.assertIn('Eigene Konfig', script)
+        self.assertIn('-Verb RunAs', script)
+
     def test_powershell_args_roundtrip(self):
         import base64
         args = winguard.powershell_args('Write-Output "x"')

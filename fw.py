@@ -57,7 +57,11 @@ def query(config):
     return state, vpn, winguard.vpn_ipv4(vpn)
 
 
+STATUS_OK, STATUS_PROBLEM, STATUS_NO_VPN = 0, 2, 3
+
+
 def status(config):
+    """0 = Netzsperre passt, 2 = fehlt/passt nicht, 3 = kein VPN verbunden (nicht pruefbar)."""
     state, vpn, ips = query(config)
     print('VPN-Adapter: ' + (', '.join(a['name'] for a in vpn) or 'KEINER aktiv'))
     print('VPN-Adresse(n): ' + (', '.join(ips) or '-'))
@@ -66,19 +70,19 @@ def status(config):
         print('  Programm: ' + program)
     if not ips:
         print('ERGEBNIS: nicht pruefbar ohne aktive VPN-Adresse.')
-        return 2
+        return STATUS_NO_VPN
     problem = winguard.check_rules(state, programs, ips)
     print('ERGEBNIS: ' + ('Netzsperre vollstaendig und passend.' if problem is None else f'{problem[0]}: {problem[1]}'))
-    return 0 if problem is None else 2
+    return STATUS_OK if problem is None else STATUS_PROBLEM
 
 
 def step(text):
     print(f'  ... {text}', flush=True)
 
 
-def apply(config, elevated):
+def apply(config, config_path, elevated):
     if not is_admin():
-        return relaunch('apply')
+        return relaunch('apply', config_path)
     step('Lese Netzwerkadapter und vorhandene Regeln (einige Sekunden)')
     state, vpn, ips = query(config)
     if not ips:
@@ -101,9 +105,9 @@ def apply(config, elevated):
     return finish(elevated, result)
 
 
-def remove(elevated):
+def remove(config_path, elevated):
     if not is_admin():
-        return relaunch('remove')
+        return relaunch('remove', config_path)
     step('Entferne die Firewall-Regeln')
     code, out, err = powershell(winguard.build_remove_script())
     print('\n  FERTIG: Regeln entfernt.' if code == 0 else '\n  FEHLER: Entfernen fehlgeschlagen: ' + g.safe_text(err.strip()[:500]))
@@ -142,18 +146,20 @@ def finish(elevated, code, seconds=8):
     return code
 
 
-def relaunch(action):
-    """Startet dieses Programm erhoeht neu (UAC-Abfrage) und wartet darauf."""
-    params = subprocess.list2cmdline(['-I', str(Path(__file__).resolve()), action, '--elevated'])
-    script = (f"Start-Process -FilePath {winguard.ps_quote(sys.executable)} "
-              f"-ArgumentList {winguard.ps_quote(params)} -Verb RunAs -Wait")
-    code, out, err = powershell(script, 1800)
+def relaunch_script(action, config_path):
+    params = subprocess.list2cmdline(['-I', str(Path(__file__).resolve()), action, '--config', str(config_path), '--elevated'])
+    return (f"Start-Process -FilePath {winguard.ps_quote(sys.executable)} "
+            f"-ArgumentList {winguard.ps_quote(params)} -Verb RunAs -Wait")
+
+
+def relaunch(action, config_path):
+    """Startet dieses Programm erhoeht neu (UAC-Abfrage), mit derselben Konfiguration, und wartet darauf."""
+    code, out, err = powershell(relaunch_script(action, config_path), 1800)
     if code != 0:
         print('Erhoehter Start abgebrochen oder fehlgeschlagen.')
         return 2
     print('Pruefe Ergebnis ...')
-    config = g.load_config(Path(g.__file__).with_name('config.toml'))
-    return status(config) if action == 'apply' else 0
+    return status(g.load_config(config_path)) if action == 'apply' else 0
 
 
 def main(argv=None):
@@ -170,8 +176,8 @@ def main(argv=None):
         if args.action == 'status':
             return status(config)
         if args.action == 'apply':
-            return apply(config, args.elevated)
-        return remove(args.elevated)
+            return apply(config, args.config, args.elevated)
+        return remove(args.config, args.elevated)
     except g.Failure as exc:
         g.error(exc)
         return finish(args.elevated, exc.code)
