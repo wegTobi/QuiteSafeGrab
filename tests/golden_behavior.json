@@ -131,6 +131,12 @@
    "METADATA_TAGS_NOT_ALLOWED": [
     5
    ],
+   "MIXDROP_RESOLUTION_FAILED": [
+    4
+   ],
+   "MIXDROP_RESOLUTION_INVALID": [
+    4
+   ],
    "NETWORK_CHECK_ERROR": [
     2
    ],

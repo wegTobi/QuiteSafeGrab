@@ -131,19 +131,25 @@ def video_name(title):
     return value
 
 
+# MixDrop-Spiegel (Vorgabe, wenn config.toml keine eigene Liste hat). MixDrop wechselt Domains wie VOE.
+MIXDROP_HOSTS = ('mixdrop.co', 'mixdrop.to', 'mixdrop.ag', 'mixdrop.ch', 'mixdrop.sx', 'mixdrop.bz', 'mixdrop.gl',
+                 'mixdrop.club', 'mixdrop.ps', 'mixdrp.co', 'mixdrp.to', 'mxdrop.to', 'mxdrop.click')
+
+
 def load_config(path):
     try:
         data = tomllib.loads(Path(path).read_text(encoding='utf-8-sig'))
         required = {'storage', 'home_country', 'home_country_names', 'blocked_orgs',
                     'allowed_patterns', 'probe_url', 'download_timeout_sec', 'voe_hosts', 'vpn_adapter_patterns', 'firewall_enforce'}
-        optional = {'ui_browser': 'auto'}   # fehlt in aelteren config.toml - dann Vorgabe
-        if set(data) - set(optional) != required:
+        # Fehlen in aelteren config.toml (setup.ps1 ueberschreibt sie nie) - dann Vorgabe.
+        optional = {'ui_browser': 'auto', 'mixdrop_hosts': list(MIXDROP_HOSTS)}
+        if not required <= set(data) or set(data) - required - set(optional):
             raise ValueError('Fehlende oder unbekannte Konfigurationseintraege')
         for key, default in optional.items():
             data.setdefault(key, default)
         if data['ui_browser'] not in UI_BROWSERS:
             raise ValueError('ui_browser muss "auto", "mullvad" oder "edge" sein')
-        for key in ('home_country_names', 'blocked_orgs', 'allowed_patterns', 'voe_hosts'):
+        for key in ('home_country_names', 'blocked_orgs', 'allowed_patterns', 'voe_hosts', 'mixdrop_hosts'):
             # blocked_orgs darf leer sein (Zusatzsicherung; den Schutz traegt die Heimatland-Pruefung).
             empty_ok = key == 'blocked_orgs'
             if not isinstance(data[key], list) or (not data[key] and not empty_ok) or any(not isinstance(x, str) or not x.strip() for x in data[key]):
@@ -718,6 +724,23 @@ def run_voe_resolver(url, config, runner, work):
         fail(4, 'VOE_RESOLUTION_INVALID', 'VOE lieferte keine eindeutige Medienadresse.')
 
 
+def run_mixdrop_resolver(url, config, runner, work):
+    """Eigener Prozess: MixDrop-Seite auslesen (nur Hosts aus mixdrop_hosts, kein JavaScript)."""
+    r = runner.run([sys.executable, '-I', str(APP / 'mixdrop_resolver.py'), url, json.dumps(config['mixdrop_hosts'])],
+                   timeout=120, cwd=work)
+    if r.code != 0 or r.timed_out:
+        fail(4, 'MIXDROP_RESOLUTION_FAILED', 'MixDrop-Aufloesung fehlgeschlagen; Hostliste/Erreichbarkeit pruefen.')
+    try:
+        info = json.loads(r.out)
+        media, referer = valid_url(info['url']), info['referer']
+        p, ref = urllib.parse.urlsplit(media), urllib.parse.urlsplit(referer)
+        if p.scheme != 'https' or ref.scheme != 'https' or ref.hostname not in config['mixdrop_hosts'] or ref.path != '/':
+            raise ValueError
+        return {'url': media, 'title': info.get('title'), 'referer': referer}
+    except (ValueError, KeyError, TypeError):
+        fail(4, 'MIXDROP_RESOLUTION_INVALID', 'MixDrop lieferte keine eindeutige Medienadresse.')
+
+
 def link_title(url, manual, found, host_fallback=False):
     """Eigener Name, sonst gefundener Titel, sonst letzter Pfadteil (yt-dlp-Links zuletzt der Hostname)."""
     p = urllib.parse.urlsplit(url)
@@ -807,12 +830,20 @@ def load_redirect_hosts(environ):
 
 def resolve_item(url, manual, config, runner, net, work, baseline):
     valid_url(url)
-    if is_voe(url, config['voe_hosts']):
+    parts = urllib.parse.urlsplit(url)
+    if parts.hostname in config['mixdrop_hosts']:
+        info = run_mixdrop_resolver(url, config, runner, work)
+        title = link_title(url, manual, info.get('title'))
+        return Item(name=video_name(title), media=info['url'], referer=info['referer'])
+    # /e/<id> auf einer bekannten VOE-Seite: direkt VOE. Auf einer unbekannten Seite (vielleicht ein neuer
+    # VOE-Spiegel, vielleicht ein ganz anderer Hoster) erst der normale Weg; VOE erfaehrt die Kennung nur,
+    # wenn sonst nichts geklappt hat (letzter Versuch unten).
+    voe_like = is_voe(url, config['voe_hosts'])
+    if voe_like and parts.hostname in config['voe_hosts']:
         info = run_voe_resolver(voe_canonical(url), config, runner, work)
         if not info:
             fail(4, 'VOE_RESOLUTION_FAILED', 'VOE-Aufloesung fehlgeschlagen; Hostliste/Erreichbarkeit pruefen.')
         return voe_item(info, url, manual)
-    parts = urllib.parse.urlsplit(url)
     redirect_first = parts.scheme == 'https' and parts.hostname in SESSION.redirect_hosts
     if redirect_first:
         # Diese Seite hat in diesem Lauf schon nur per Weiterleitung geklappt: den Weg zuerst versuchen
@@ -834,6 +865,12 @@ def resolve_item(url, manual, config, runner, net, work, baseline):
         if info:
             SESSION.redirect_hosts.add(parts.hostname)
             emit('redirect_host', host=parts.hostname)   # ui.py merkt es sich im Speicher fuer spaetere Laeufe
+            return voe_item(info, url, manual)
+    if (r.code != 0 or r.timed_out) and voe_like:
+        # Letzter Versuch: unbekannte Seite mit /e/<id> - vielleicht ein neuer VOE-Spiegel.
+        net.check('IPv4 vor VOE-Aufloesung', baseline)
+        info = run_voe_resolver(voe_canonical(url), config, runner, work)
+        if info:
             return voe_item(info, url, manual)
     if r.code != 0 or r.timed_out:
         detail = safe_text((r.err + '\n' + r.out)[-2000:]).strip()
