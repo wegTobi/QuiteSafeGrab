@@ -79,8 +79,8 @@ function bytes(n, decimals = 1) {
 }
 
 function unit(s) {
-  // yt-dlp: "212.40MiB" -> "212,40 MiB"
-  return s ? s.replace(/^([\d.]+)/, (m) => m.replace('.', ',') + ' ') : '–';
+  // yt-dlp: "212.40MiB" -> "212,40 MB"
+  return s ? s.replace(/^([\d.]+)/, (m) => m.replace('.', ',') + ' ').replace(/([KMGT])iB/, '$1B') : '–';
 }
 
 const UNITS = { B: 1, KB: 1e3, MB: 1e6, GB: 1e9, KIB: 1024, MIB: 1024 ** 2, GIB: 1024 ** 3, TIB: 1024 ** 4 };
@@ -95,8 +95,8 @@ function parseSize(s) {
 function speedText(bytesPerSec) {
   // KiB/s ohne Nachkommastellen, ab 1 MiB/s mit zwei.
   if (bytesPerSec === null || !isFinite(bytesPerSec)) return '–';
-  if (bytesPerSec >= 1024 ** 2) return (bytesPerSec / 1024 ** 2).toFixed(2).replace('.', ',') + ' MiB/s';
-  if (bytesPerSec >= 1024) return Math.round(bytesPerSec / 1024) + ' KiB/s';
+  if (bytesPerSec >= 1024 ** 2) return (bytesPerSec / 1024 ** 2).toFixed(2).replace('.', ',') + ' MB/s';
+  if (bytesPerSec >= 1024) return Math.round(bytesPerSec / 1024) + ' KB/s';
   return Math.round(bytesPerSec) + ' B/s';
 }
 
@@ -192,7 +192,8 @@ function renderNow(st) {
   // Titelsuche: kein Balken, nur Restzeit und Laufzeit (das drehende Rädchen zeigt, dass es läuft).
   const previewing = st.mode === 'preview';
   bar.hidden = previewing;
-  for (const id of ['st-pct', 'st-speed', 'st-avg', 'st-total']) $(id).parentElement.hidden = previewing;
+  for (const id of ['st-pct', 'st-speed', 'st-avg']) $(id).parentElement.hidden = previewing;
+  $('st-total').parentElement.hidden = true;   // Größe steht beim Titel in der Warteschlange
   $('st-elapsed').parentElement.style.order = previewing ? '-1' : '';
   // Prozent nur beim echten Download (nicht bei Titelsuche oder Prüfungen).
   const downloading = st.mode === 'download' && cur.phase === 'download';
@@ -330,7 +331,12 @@ function renderQueue(st) {
     main.append(head);
     if (item.name && item.title && item.title !== item.name) main.append(el('div', 'item-sub', 'Gefundener Titel: ' + item.title));
     // Adresse nur als Text - bewusst nicht anklickbar.
-    main.append(el('div', 'item-sub', item.url));
+    const sub = el('div', 'item-sub', item.url);
+    // Größe: aus der Größenabfrage, beim laufenden Download notfalls aus dessen Fortschrittsangabe
+    const live = item.status === 'running' && st.current && st.current.id === item.id ? parseSize(st.current.total) : null;
+    const size = (item.size_state === 'ok' && item.expected_size) || (item.status === 'running' && (item.expected_size || live));
+    if (size) sub.append(el('span', 'tag size-tag', bytes(size, size >= 1024 ** 3 ? 1 : 0)));
+    main.append(sub);
     if (item.error) main.append(el('div', 'item-err', (item.error.ident ? item.error.ident + ': ' : '') + item.error.message));
     const actions = el('div', 'item-actions');
     const label = searching ? 'Titelsuche' : item.status === 'waiting' && ts === 'ok' ? 'bereit' : (STATUS[item.status] || item.status);
@@ -382,6 +388,7 @@ function renderTotal(st) {
   const waiting = st.queue.filter((x) => x.status === 'waiting');
   const running = st.queue.find((x) => x.status === 'running');
   $('btn-sizes').hidden = st.sizes_enabled || !waiting.length;
+  $('btn-sizes').textContent = lastSpeed ? 'Gesamtlaufzeit berechnen' : 'Gesamtgröße ermitteln';
   const out = $('queue-total');
   if (!st.sizes_enabled || (!waiting.length && !running)) { out.hidden = true; return; }
   let total = 0, unknown = 0, pending = 0;

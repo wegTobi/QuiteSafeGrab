@@ -270,10 +270,17 @@ if ($installed -and -not $AfterUpdate -and -not $NoUpdateCheck -and -not $Offlin
   Step 'Neue Version von Quite Safe Grab?'
   if (AskYesNo 'Auf GitHub nach einer neuen Version suchen?' $true) {
     $release = $null
-    try {
-      $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$REPO/releases/latest" -UseBasicParsing -TimeoutSec 20 `
-        -Headers @{ 'User-Agent' = 'QuiteSafeGrab-Setup'; 'Accept' = 'application/vnd.github+json' }
-    } catch { Warn 'Update-Suche nicht möglich (offline, Repository privat oder noch kein Release). Weiter mit der lokalen Prüfung.' }
+    # Nur über das VPN: sonst erfährt GitHub, dass die echte Adresse Quite Safe Grab nutzt.
+    # fw.py status: 0 = Netzsperre passt, 2 = VPN da, Regeln passen nicht, 3 = kein VPN
+    $vpnCheck = Get-VpnStatus
+    if ($vpnCheck.Code -ne 0 -and $vpnCheck.Code -ne 2) {
+      Warn 'Update-Suche übersprungen: VPN nicht verbunden. Mit verbundenem VPN !Einrichten.cmd erneut starten, um nach Updates zu suchen.'
+    } else {
+      try {
+        $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$REPO/releases/latest" -UseBasicParsing -TimeoutSec 20 `
+          -Headers @{ 'User-Agent' = 'QuiteSafeGrab-Setup'; 'Accept' = 'application/vnd.github+json' }
+      } catch { Warn 'Update-Suche nicht möglich (offline, Repository privat oder noch kein Release). Weiter mit der lokalen Prüfung.' }
+    }
     if ($release) {
       $latest = ($release.tag_name -replace '^[vV]', '')
       $newer = $false

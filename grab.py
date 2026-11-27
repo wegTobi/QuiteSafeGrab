@@ -1150,7 +1150,7 @@ def sizes(config, runner, net, store, urls):
                 print(f'{i+1}. Groesse unbekannt: ' + safe_text(exc))
                 emit('size', index=i, bytes=None)
                 continue
-            print(f'{i+1}. Groesse: ' + (f'{size / 1024**2:.0f} MiB' if size else 'unbekannt'))
+            print(f'{i+1}. Groesse: ' + (f'{size / 1024**2:.0f} MB' if size else 'unbekannt'))
             emit('size', index=i, bytes=size)
         net.check('IPv4 nach Groessenabfrage', baseline)
     emit('sized', total=len(urls))
