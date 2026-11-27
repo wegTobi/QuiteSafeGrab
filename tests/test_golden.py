@@ -313,14 +313,14 @@ def golden_network():
         r2 = net.check('IPv4 vor Transfer', exit_ip)
     out['A_mullvad'] = {'log': rec.result(), 'returns': [r1, r2], 'stdout': norm(stdout.getvalue())}
 
-    # B: Mullvad 3x unbrauchbar -> ipapi.co; IPv6 erreichbar; anderer Resolver: ipapi.co scheitert -> ipinfo.io;
+    # B: Mullvad 3x unbrauchbar -> ipapi.co; IPv6 unerreichbar; anderer Resolver: ipapi.co scheitert -> ipinfo.io;
     #    zweite Pruefung nutzt die gespeicherten Resolver-Geodaten (nur im Speicher).
     rec = Recorder()
     resolver = '185.159.157.53'
     runner = NetRunner(rec, {
         'https://am.i.mullvad.net/json': {},
         'https://ipapi.co/json/': {'ip': exit_ip, 'country_code': 'CH', 'country_name': 'Switzerland', 'org': 'Proton AG'},
-        'https://ipv6.am.i.mullvad.net/json': {'ip': '2a07:b944::1', 'country': 'Switzerland', 'organization': 'Proton AG'},
+        'https://ipv6.am.i.mullvad.net/json': g.Result(7, '', 'no route'),
         f'https://ipapi.co/{resolver}/json/': g.Result(22, '', 'HTTP 429'),
         f'https://ipinfo.io/{resolver}/json': {'ip': resolver, 'country': 'CH', 'org': 'AS62371 Proton AG'},
     }, resolver)
@@ -353,6 +353,20 @@ def golden_network():
     with guard_env(rec), contextlib.redirect_stdout(io.StringIO()):
         r = g.Network(CONFIG, runner, skip=True).check('IPv4 vor Probe')
     out['D_skip'] = {'log': rec.result(), 'returns': r}
+
+    # E: IPv6 erreichbar (selbst ueber Proton, selbst mit --force) -> Abbruch Exit 2, IPv6 ist komplett gesperrt.
+    for force in (False, True):
+        rec = Recorder()
+        runner = NetRunner(rec, {'https://am.i.mullvad.net/json': mullvad_ok,
+                                 'https://ipv6.am.i.mullvad.net/json': {'ip': '2a07:b944::1', 'country': 'Switzerland',
+                                                                       'organization': 'Proton AG'}}, exit_ip)
+        with guard_env(rec), contextlib.redirect_stdout(io.StringIO()) as stdout:
+            try:
+                g.Network(CONFIG, runner, force=force).check('IPv4 Statuspruefung')
+                r = None
+            except g.Failure as exc:
+                r = failure(exc)
+        out[f'E_ipv6_open_force_{force}'] = {'log': rec.result(), 'returns': r, 'stdout': norm(stdout.getvalue())}
 
     # json_request-Kommandozeilen direkt
     rec = Recorder()

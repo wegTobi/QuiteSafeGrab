@@ -287,25 +287,29 @@ class TestCore(unittest.TestCase):
         net.json_request = lambda *a: {'ip': '2606:4700:4700::1111', 'country': 'Germany', 'organization': 'Proton'}
         with contextlib.redirect_stdout(io.StringIO()), self.assertRaises(g.Failure) as caught:
             net.ipv6()
-        self.assertEqual(caught.exception.ident, 'HOME_COUNTRY_DETECTED')
+        self.assertEqual((caught.exception.code, caught.exception.ident), (2, 'IPV6_PATH_OPEN'))
 
-    def test_force_never_bypasses_ipv6_allowlist(self):
-        """V5a: --force umgeht nur die IPv4-/DNS-Positivliste; ein IPv6-Ausgang ausserhalb der Liste stoppt immer."""
+    def test_any_reachable_ipv6_stops_even_allowlisted_or_forced(self):
+        """IPv6 komplett gesperrt: jeder erreichbare IPv6-Weg stoppt mit Exit 2 - auch ueber Proton,
+        auch mit --force, auch bei unlesbarer Antwort. Die IPv4-Ausnahme von --force bleibt."""
+        proton = {'ip': '2a07:b944::1', 'country': 'Switzerland', 'organization': 'Proton AG'}
         outside = {'ip': '2606:4700:4700::1111', 'country': 'Netherlands', 'organization': 'Unbekannter Hoster B.V.'}
-        net = g.Network(CONFIG, None, force=True)
-        net.json_request = lambda *a: outside
-        with contextlib.redirect_stdout(io.StringIO()) as out, self.assertRaises(g.Failure) as caught:
-            net.ipv6()
-        self.assertEqual((caught.exception.code, caught.exception.ident), (2, 'ORG_NOT_ALLOWLISTED'))
-        self.assertNotIn('--force', out.getvalue())
+        for force in (False, True):
+            for answer in (proton, outside, {'kaputt': True}):
+                net = g.Network(CONFIG, None, force=force)
+                net.json_request = lambda *a, answer=answer: answer
+                events = []
+                with patch.object(g, 'emit', lambda kind, **d: events.append((kind, d))), \
+                        contextlib.redirect_stdout(io.StringIO()), self.assertRaises(g.Failure) as caught:
+                    net.ipv6()
+                self.assertEqual((caught.exception.code, caught.exception.ident), (2, 'IPV6_PATH_OPEN'))
+                self.assertEqual([(k, d['key'], d['ok']) for k, d in events], [('check', 'ipv6', False)])
         # Gegenprobe: dieselbe Organisation ueber IPv4 laesst --force (mit Warnung) durch.
+        net = g.Network(CONFIG, None, force=True)
         with contextlib.redirect_stdout(io.StringIO()) as out:
             net.policy(g.parse_status(dict(outside, ip='1.1.1.1'), 'am.i.mullvad.net'), 'IPv4')
         self.assertIn('--force', out.getvalue())
-        # Erlaubter IPv6-Ausgang geht weiter durch.
-        net.json_request = lambda *a: dict(outside, organization='Proton AG')
-        with contextlib.redirect_stdout(io.StringIO()):
-            self.assertEqual(net.ipv6(), '2606:4700:4700::1111')
+        self.assertEqual(g.ERROR_CHECK['IPV6_PATH_OPEN'], 'ipv6')
 
     def test_ip_change_blocks(self):
         net = g.Network(CONFIG, None)

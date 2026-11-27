@@ -19,6 +19,7 @@
    "FIREWALL_RULES_MISSING": "firewall",
    "GUARD_QUERY_FAILED": "firewall",
    "GUARD_QUERY_INVALID": "firewall",
+   "IPV6_PATH_OPEN": "ipv6",
    "NETWORK_CHECK_ERROR": "ipv4",
    "TUNNEL_STATUS_UNAVAILABLE": "ipv4"
   },
@@ -105,6 +106,9 @@
    ],
    "INPUT_URL_INVALID": [
     1
+   ],
+   "IPV6_PATH_OPEN": [
+    2
    ],
    "IP_COUNTRY_UNKNOWN": [
     2
@@ -1324,10 +1328,9 @@
      "timeout": 12
     },
     {
-     "detail": "2a07:b944::1 · Switzerland · Proton AG (Quelle am.i.mullvad.net)",
+     "detail": "Kein IPv6-Weg ins Internet",
      "emit": "check",
      "key": "ipv6",
-     "label": "IPv6",
      "ok": true
     },
     {
@@ -1540,10 +1543,9 @@
      "timeout": 12
     },
     {
-     "detail": "2a07:b944::1 · Switzerland · Proton AG (Quelle am.i.mullvad.net)",
+     "detail": "Kein IPv6-Weg ins Internet",
      "emit": "check",
      "key": "ipv6",
-     "label": "IPv6",
      "ok": true
     },
     {
@@ -1712,10 +1714,9 @@
      "timeout": 12
     },
     {
-     "detail": "2a07:b944::1 · Switzerland · Proton AG (Quelle am.i.mullvad.net)",
+     "detail": "Kein IPv6-Weg ins Internet",
      "emit": "check",
      "key": "ipv6",
-     "label": "IPv6",
      "ok": true
     },
     {
@@ -1744,7 +1745,7 @@
      "failure": "EXIT_IP_CHANGED"
     }
    ],
-   "stdout": "Netzsperre: Selbsttest bestanden (1 Nicht-VPN-Adresse(n) blockiert oder ohne Weg ins Netz).\nStatus-Fallback: Quelle ipapi.co (Mullvad nach drei Versuchen unbrauchbar).\nIPv4 vor Probe: IP 185.159.157.10 | Switzerland | Proton AG | Quelle ipapi.co\nIPv6: IP 2a07:b944::1 | Switzerland | Proton AG | Quelle am.i.mullvad.net\nDNS: sichtbar rekursiver Ausgang: 185.159.157.53\nDNS: IP 185.159.157.53 | CH | AS62371 Proton AG | Quelle ipinfo.io\nStatus-Fallback: Quelle ipapi.co (Mullvad nach drei Versuchen unbrauchbar).\nIPv4 nach Probe: IP 185.159.157.10 | Switzerland | Proton AG | Quelle ipapi.co\nIPv6: IP 2a07:b944::1 | Switzerland | Proton AG | Quelle am.i.mullvad.net\nDNS: sichtbar rekursiver Ausgang: 185.159.157.53\nDNS: IP 185.159.157.53 | CH | AS62371 Proton AG | Quelle ipinfo.io\nStatus-Fallback: Quelle ipapi.co (Mullvad nach drei Versuchen unbrauchbar).\nIPv4 nach Transfer/Remux: IP 185.159.157.10 | Switzerland | Proton AG | Quelle ipapi.co\nIPv6: IP 2a07:b944::1 | Switzerland | Proton AG | Quelle am.i.mullvad.net\nDNS: sichtbar rekursiver Ausgang: 185.159.157.53\nDNS: IP 185.159.157.53 | CH | AS62371 Proton AG | Quelle ipinfo.io\n"
+   "stdout": "Netzsperre: Selbsttest bestanden (1 Nicht-VPN-Adresse(n) blockiert oder ohne Weg ins Netz).\nStatus-Fallback: Quelle ipapi.co (Mullvad nach drei Versuchen unbrauchbar).\nIPv4 vor Probe: IP 185.159.157.10 | Switzerland | Proton AG | Quelle ipapi.co\nIPv6: kein Internetpfad nachgewiesen (kein Beleg fuer einen sicheren Pfad).\nDNS: sichtbar rekursiver Ausgang: 185.159.157.53\nDNS: IP 185.159.157.53 | CH | AS62371 Proton AG | Quelle ipinfo.io\nStatus-Fallback: Quelle ipapi.co (Mullvad nach drei Versuchen unbrauchbar).\nIPv4 nach Probe: IP 185.159.157.10 | Switzerland | Proton AG | Quelle ipapi.co\nIPv6: kein Internetpfad nachgewiesen (kein Beleg fuer einen sicheren Pfad).\nDNS: sichtbar rekursiver Ausgang: 185.159.157.53\nDNS: IP 185.159.157.53 | CH | AS62371 Proton AG | Quelle ipinfo.io\nStatus-Fallback: Quelle ipapi.co (Mullvad nach drei Versuchen unbrauchbar).\nIPv4 nach Transfer/Remux: IP 185.159.157.10 | Switzerland | Proton AG | Quelle ipapi.co\nIPv6: kein Internetpfad nachgewiesen (kein Beleg fuer einen sicheren Pfad).\nDNS: sichtbar rekursiver Ausgang: 185.159.157.53\nDNS: IP 185.159.157.53 | CH | AS62371 Proton AG | Quelle ipinfo.io\n"
   },
   "C_home_country": {
    "log": [
@@ -1870,6 +1871,220 @@
     }
    ],
    "returns": null
+  },
+  "E_ipv6_open_force_False": {
+   "log": [
+    {
+     "run": [
+      "<POWERSHELL>",
+      "-NoLogo",
+      "-NoProfile",
+      "-NonInteractive",
+      "-ExecutionPolicy",
+      "Restricted",
+      "-EncodedCommand",
+      "<ENC:STATE_SCRIPT>"
+     ],
+     "timeout": 60
+    },
+    {
+     "detail": "ProtonVPN · 10.2.0.2",
+     "emit": "check",
+     "key": "vpn",
+     "ok": true
+    },
+    {
+     "detail": "5 Programme gesperrt ausser ueber das VPN",
+     "emit": "check",
+     "key": "firewall",
+     "ok": true
+    },
+    {
+     "run": [
+      "<PY>",
+      "-I",
+      "-c",
+      "<SELFTEST_CODE>",
+      "192.168.178.20"
+     ],
+     "timeout": 19
+    },
+    {
+     "detail": "1 andere Adresse(n) blockiert oder ohne Weg ins Netz",
+     "emit": "check",
+     "key": "selftest",
+     "ok": true
+    },
+    {
+     "run": [
+      "<CURL>",
+      "--disable",
+      "--silent",
+      "--show-error",
+      "--fail",
+      "--max-time",
+      "10",
+      "--connect-timeout",
+      "5",
+      "--noproxy",
+      "*",
+      "-4",
+      "--proto",
+      "=https",
+      "--max-filesize",
+      "1048576",
+      "https://am.i.mullvad.net/json"
+     ],
+     "timeout": 12
+    },
+    {
+     "detail": "185.159.157.10 · Switzerland · Proton AG (Quelle am.i.mullvad.net)",
+     "emit": "check",
+     "key": "ipv4",
+     "label": "IPv4 Statuspruefung",
+     "ok": true
+    },
+    {
+     "run": [
+      "<CURL>",
+      "--disable",
+      "--silent",
+      "--show-error",
+      "--fail",
+      "--max-time",
+      "10",
+      "--connect-timeout",
+      "5",
+      "--noproxy",
+      "*",
+      "-6",
+      "--proto",
+      "=https",
+      "--max-filesize",
+      "1048576",
+      "https://ipv6.am.i.mullvad.net/json"
+     ],
+     "timeout": 12
+    },
+    {
+     "detail": "IPv6-Weg offen: 2a07:b944::1 · Switzerland · Proton AG (Quelle am.i.mullvad.net)",
+     "emit": "check",
+     "key": "ipv6",
+     "ok": false
+    }
+   ],
+   "returns": {
+    "code": 2,
+    "failure": "IPV6_PATH_OPEN"
+   },
+   "stdout": "Netzsperre: Selbsttest bestanden (1 Nicht-VPN-Adresse(n) blockiert oder ohne Weg ins Netz).\nIPv4 Statuspruefung: IP 185.159.157.10 | Switzerland | Proton AG | Quelle am.i.mullvad.net\nIPv6: Internetpfad gefunden - IPv6 ist gesperrt, Abbruch.\n"
+  },
+  "E_ipv6_open_force_True": {
+   "log": [
+    {
+     "run": [
+      "<POWERSHELL>",
+      "-NoLogo",
+      "-NoProfile",
+      "-NonInteractive",
+      "-ExecutionPolicy",
+      "Restricted",
+      "-EncodedCommand",
+      "<ENC:STATE_SCRIPT>"
+     ],
+     "timeout": 60
+    },
+    {
+     "detail": "ProtonVPN · 10.2.0.2",
+     "emit": "check",
+     "key": "vpn",
+     "ok": true
+    },
+    {
+     "detail": "5 Programme gesperrt ausser ueber das VPN",
+     "emit": "check",
+     "key": "firewall",
+     "ok": true
+    },
+    {
+     "run": [
+      "<PY>",
+      "-I",
+      "-c",
+      "<SELFTEST_CODE>",
+      "192.168.178.20"
+     ],
+     "timeout": 19
+    },
+    {
+     "detail": "1 andere Adresse(n) blockiert oder ohne Weg ins Netz",
+     "emit": "check",
+     "key": "selftest",
+     "ok": true
+    },
+    {
+     "run": [
+      "<CURL>",
+      "--disable",
+      "--silent",
+      "--show-error",
+      "--fail",
+      "--max-time",
+      "10",
+      "--connect-timeout",
+      "5",
+      "--noproxy",
+      "*",
+      "-4",
+      "--proto",
+      "=https",
+      "--max-filesize",
+      "1048576",
+      "https://am.i.mullvad.net/json"
+     ],
+     "timeout": 12
+    },
+    {
+     "detail": "185.159.157.10 · Switzerland · Proton AG (Quelle am.i.mullvad.net)",
+     "emit": "check",
+     "key": "ipv4",
+     "label": "IPv4 Statuspruefung",
+     "ok": true
+    },
+    {
+     "run": [
+      "<CURL>",
+      "--disable",
+      "--silent",
+      "--show-error",
+      "--fail",
+      "--max-time",
+      "10",
+      "--connect-timeout",
+      "5",
+      "--noproxy",
+      "*",
+      "-6",
+      "--proto",
+      "=https",
+      "--max-filesize",
+      "1048576",
+      "https://ipv6.am.i.mullvad.net/json"
+     ],
+     "timeout": 12
+    },
+    {
+     "detail": "IPv6-Weg offen: 2a07:b944::1 · Switzerland · Proton AG (Quelle am.i.mullvad.net)",
+     "emit": "check",
+     "key": "ipv6",
+     "ok": false
+    }
+   ],
+   "returns": {
+    "code": 2,
+    "failure": "IPV6_PATH_OPEN"
+   },
+   "stdout": "Netzsperre: Selbsttest bestanden (1 Nicht-VPN-Adresse(n) blockiert oder ohne Weg ins Netz).\nIPv4 Statuspruefung: IP 185.159.157.10 | Switzerland | Proton AG | Quelle am.i.mullvad.net\nIPv6: Internetpfad gefunden - IPv6 ist gesperrt, Abbruch.\n"
   },
   "json_request": [
    {

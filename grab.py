@@ -587,17 +587,23 @@ class Network:
                 fail(2, 'ORG_NOT_ALLOWLISTED', f'{label}: Organisation nicht auf Positivliste.')
 
     def ipv6(self):
-        """IPv6 darf, falls erreichbar, nur ueber einen erlaubten Ausgang laufen."""
+        """IPv6 ist komplett gesperrt (Nutzerentscheidung): Jeder erreichbare IPv6-Weg stoppt das Tool,
+        egal ueber welchen Betreiber - auch mit --force. Die Firewall-Regeln sperren IPv6 ohnehin;
+        ist es trotzdem erreichbar, stimmt etwas mit der Netzsperre nicht."""
         try:
             data = self.json_request('https://ipv6.am.i.mullvad.net/json', 6)
         except (ValueError, TypeError):
             print('IPv6: kein Internetpfad nachgewiesen (kein Beleg fuer einen sicheren Pfad).')
             emit('check', key='ipv6', ok=True, detail='Kein IPv6-Weg ins Internet')
             return None
-        info = parse_status(data, 'am.i.mullvad.net', 6)
-        # --force gilt nur fuer IPv4/DNS: IPv6 muss immer auf der Positivliste stehen.
-        self.policy(info, 'IPv6', allow_force=False)
-        return info['ip']
+        try:
+            info = parse_status(data, 'am.i.mullvad.net', 6)
+            detail = f'{info["ip"]} · {info["country_code"] or info["country"]} · {info["org"]} (Quelle {info["source"]})'
+        except (ValueError, TypeError, KeyError):
+            detail = 'Antwort nicht auswertbar'
+        print('IPv6: Internetpfad gefunden - IPv6 ist gesperrt, Abbruch.')
+        emit('check', key='ipv6', ok=False, detail='IPv6-Weg offen: ' + detail)
+        fail(2, 'IPV6_PATH_OPEN', 'IPv6-Weg ins Internet gefunden, IPv6 ist gesperrt. Netzsperre pruefen (qsgrab.cmd firewall status).')
 
     def dns(self, known=None):
         """known: im selben Pruefpunkt soeben ermittelter IPv4-Status (fuer identischen Resolver wiederverwendet)."""

@@ -39,7 +39,7 @@ ERROR_CHECK = {'GUARD_QUERY_FAILED': 'firewall', 'GUARD_QUERY_INVALID': 'firewal
                'FIREWALL_RULES_MISSING': 'firewall', 'FIREWALL_BLOCKS_VPN': 'firewall',
                'TUNNEL_STATUS_UNAVAILABLE': 'ipv4', 'EXIT_IP_CHANGED': 'ipv4', 'NETWORK_CHECK_ERROR': 'ipv4',
                'DNS_RESOLVER_FAILED': 'dns', 'DNS_RESOLVER_AMBIGUOUS': 'dns', 'DNS_RESOLVER_INVALID': 'dns',
-               'DNS_GEO_FAILED': 'dns'}
+               'DNS_GEO_FAILED': 'dns', 'IPV6_PATH_OPEN': 'ipv6'}
 
 
 # Phasen (Ereignis "phase"). DOWNLOAD_PHASES ist die Reihenfolge eines Downloads, so zeigt sie die Oberflaeche.
