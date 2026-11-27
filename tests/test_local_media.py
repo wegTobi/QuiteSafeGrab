@@ -54,8 +54,10 @@ class TestMedia(unittest.TestCase):
         cls.root = Path(cls.temp.name)
         cls.site = cls.root / 'site'
         cls.site.mkdir()
-        cls.saved = (g.YDL, g.FFMPEG, g.FFPROBE)
+        cls.saved = (g.YDL, g.FFMPEG, g.FFPROBE, g.check_media_hosts)
         g.YDL, g.FFMPEG, g.FFPROBE = YDL, FFMPEG, FFPROBE
+        # Testserver laeuft bewusst auf 127.0.0.1 - die Sperre fuer lokale Videoquellen hier ueberbruecken.
+        g.check_media_hosts = lambda item: None
         cls.make(['-f','lavfi','-i','testsrc2=size=160x90:rate=10:duration=2',
                   '-f','lavfi','-i','sine=frequency=440:duration=2','-c:v','libx264','-preset','ultrafast','-c:a','aac',str(cls.site/'sample.mp4')])
         cls.make(['-i',str(cls.site/'sample.mp4'),'-c','copy','-f','hls','-hls_time','1','-hls_list_size','0',str(cls.site/'index.m3u8')])
@@ -73,7 +75,7 @@ class TestMedia(unittest.TestCase):
     def tearDownClass(cls):
         cls.server.shutdown()
         cls.server.server_close()
-        g.YDL,g.FFMPEG,g.FFPROBE=cls.saved
+        g.YDL,g.FFMPEG,g.FFPROBE,g.check_media_hosts=cls.saved
         cls.temp.cleanup()
 
     def config(self):

@@ -12,7 +12,7 @@
 <body>
 <header class="top">
   <div class="brand">
-    <img class="logo" src="/logo.png" alt="" width="40" height="40">
+    <img class="logo" src="/logo.png" alt="" width="58" height="58">
     <div>
       <h1>Quite Safe Grab</h1>
       <p class="sub">Archiv-Downloader – nur über das VPN</p>
@@ -89,7 +89,11 @@
   <section class="card" aria-labelledby="h-queue">
     <div class="card-head">
       <h2 id="h-queue">Warteschlange <span id="queue-count" class="count" hidden></span></h2>
-      <button id="btn-clear" class="btn ghost small-btn" type="button">Erledigte entfernen</button>
+      <div class="head-actions">
+        <button id="btn-sizes" class="btn ghost small-btn" type="button" hidden
+          title="Eine kleine Spur mehr: Der Videoserver sieht schon bei der Größenabfrage einen Abruf und später beim Download noch einmal. Die IP-Adresse bleibt geschützt, es ist nur ein Kontakt mehr.">Gesamtlaufzeit berechnen</button>
+        <span id="queue-total" class="queue-total" hidden></span>
+      </div>
     </div>
     <ul id="queue" class="list"></ul>
     <div id="queue-empty" class="empty">Leer.</div>

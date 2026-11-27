@@ -109,7 +109,18 @@ const HINTS = {
   remux: 'Video wird fertiggestellt (ohne Qualitätsverlust) …',
   verify: 'Abschlussprüfung der Verbindung …',
 };
+// Was die Sicherheitsprüfung vor Titelsuche/Größenabfrage gerade tut (nach dem zuletzt fertigen Prüfpunkt).
+const NEXT_CHECK = {
+  '': 'Sicherheitsprüfung: VPN-Adapter wird geprüft …',
+  vpn: 'Sicherheitsprüfung: Netzsperre (Firewall) wird geprüft …',
+  firewall: 'Sicherheitsprüfung: Selbsttest der Netzsperre …',
+  selftest: 'Sicherheitsprüfung: IPv4-Ausgang wird geprüft …',
+  ipv4: 'Sicherheitsprüfung: IPv6 wird geprüft …',
+  ipv6: 'Sicherheitsprüfung: DNS-Ausgang wird geprüft …',
+  dns: 'Sicherheitsprüfung bestanden – es geht gleich los …',
+};
 function hintText(st, cur, hasProgress) {
+  if (st.mode === 'preview' && !cur.preview_started) return NEXT_CHECK[cur.check_step || ''] || NEXT_CHECK[''];
   if (st.mode === 'check') return 'Sicherheitsprüfung läuft (VPN, Firewall, IP, DNS) …';
   if (st.mode === 'preview') return 'Titel werden gesucht – vorher und zwischendurch wird die Verbindung geprüft. Noch kein Download.';
   if (cur.phase === 'download' && hasProgress) return '';
@@ -203,12 +214,13 @@ function renderNow(st) {
   // Durchschnitt dieses Videos: geladene Bytes / Zeit seit Beginn des Downloads.
   const totalBytes = parseSize(cur.total);
   const since = cur.download_started ? serverNow() - cur.download_started : 0;
-  $('st-avg').textContent = downloading && pct !== null && totalBytes && since > 1
-    ? speedText(totalBytes * pct / 100 / since) : '–';
+  const avg = downloading && pct !== null && totalBytes && since > 1 ? totalBytes * pct / 100 / since : null;
+  if (avg) lastSpeed = avg;
+  $('st-avg').textContent = avg ? speedText(avg) : '–';
   if (previewing) {
     // erst ab dem zweiten fertigen Link berechnet (Server), hier nur heruntergezählt
     const left = typeof cur.eta_seconds === 'number' ? cur.eta_seconds - (serverNow() - cur.eta_at) : null;
-    const calculating = typeof cur.preview_started === 'number' && serverNow() - cur.preview_started >= 5;
+    const calculating = typeof cur.preview_started === 'number' && serverNow() - cur.preview_started >= 12;
     $('st-eta').textContent = left === null ? (calculating ? 'wird berechnet …' : '–')
       : left > 0 ? 'ca. ' + duration(left) : 'gleich fertig';
   } else {
@@ -364,6 +376,58 @@ function renderLog(st) {
   if (atBottom) pre.scrollTop = pre.scrollHeight;
 }
 
+// Gesamt-Restzeit der Warteschlange: verbleibende Bytes / aktuelle (sonst zuletzt gemessene) Geschwindigkeit.
+let lastSpeed = null;
+function renderTotal(st) {
+  const waiting = st.queue.filter((x) => x.status === 'waiting');
+  const running = st.queue.find((x) => x.status === 'running');
+  $('btn-sizes').hidden = st.sizes_enabled || !waiting.length;
+  const out = $('queue-total');
+  if (!st.sizes_enabled || (!waiting.length && !running)) { out.hidden = true; return; }
+  let total = 0, unknown = 0, pending = 0;
+  for (const x of waiting) {
+    if (x.size_state === 'ok') total += x.expected_size;
+    else if (x.size_state === 'unknown') unknown++;
+    else pending++;
+  }
+  const cur = st.current;
+  let speed = null;
+  if (running) {
+    const size = parseSize(cur && cur.total);
+    const pct = cur && typeof cur.percent === 'number' ? cur.percent : null;
+    if (st.mode === 'download' && cur.phase === 'download' && size && pct !== null) {
+      total += size * (1 - pct / 100);
+      const since = cur.download_started ? serverNow() - cur.download_started : 0;
+      if (since > 1 && pct > 0) speed = size * pct / 100 / since;
+    } else if (running.expected_size) {
+      total += running.expected_size;
+    }
+  }
+  speed = speed || lastSpeed;
+  out.hidden = false;
+  if (pending) {
+    // Größenabfrage läuft parallel; Links ohne Titel kommen direkt nach ihrer Titelsuche dran.
+    const job = st.size_job;
+    out.textContent = job ? 'Größen werden ermittelt (' + job.done + ' von ' + job.total + ') …'
+      : waiting.some((x) => x.title_state !== 'ok') ? 'Gesamtzeit: nach der Titelsuche' : 'Größen werden ermittelt …';
+    out.title = '';
+    return;
+  }
+  if (!total) {
+    out.textContent = pending ? 'Größen werden ermittelt …' : 'Größe unbekannt';
+    out.title = '';
+    return;
+  }
+  const sec = speed ? total / speed : 0;
+  const mins = Math.max(1, Math.round(sec / 60));
+  const span = mins >= 60 ? Math.floor(mins / 60) + ':' + pad(mins % 60) + ' h' : mins + ' Min.';
+  out.textContent = (speed ? 'Gesamt: ca. ' + span + ' · ' : 'Gesamt: ') + bytes(total)
+    + (speed ? '' : ' – Zeit ab Downloadstart') + (pending ? ' …' : unknown ? ' +?' : '');
+  out.title = (speed ? 'Geschätzt mit der aktuellen Geschwindigkeit (' + speedText(speed) + ').' : 'Die Zeit erscheint, sobald ein Download läuft.')
+    + (pending ? ' Weitere Größen werden noch ermittelt.' : '')
+    + (unknown ? ' ' + unknown + ' Größe(n) unbekannt, nicht eingerechnet.' : '');
+}
+
 function renderControls(st) {
   const busy = st.mode !== 'idle';
   const waiting = st.queue.some((x) => x.status === 'waiting');
@@ -371,8 +435,7 @@ function renderControls(st) {
   $('btn-start').disabled = !waiting || (busy && !previewing) || (previewing && st.start_pending);
   $('btn-start').textContent = 'Start';   // waehrend der Titelsuche: Downloads starten automatisch danach
   $('btn-check').disabled = busy;
-  $('btn-stop').hidden = !busy;
-  $('btn-clear').disabled = !st.queue.some((x) => ['done', 'failed', 'stopped'].includes(x.status));
+  $('btn-stop').hidden = !busy && !st.size_job;
   $('browser-info').textContent = 'Browser-Einstellung: ' + st.browser;
 }
 
@@ -388,6 +451,7 @@ function render(st) {
   renderHistory(st);
   renderLog(st);
   renderControls(st);
+  renderTotal(st);
 }
 
 // ---- Abfrage im Sekundentakt
@@ -442,7 +506,7 @@ function setup() {
   $('btn-start').addEventListener('click', () => { message(''); act('/api/start'); });
   $('btn-check').addEventListener('click', () => { message(''); act('/api/check'); });
   $('btn-stop').addEventListener('click', () => act('/api/stop'));
-  $('btn-clear').addEventListener('click', () => act('/api/queue/clear'));
+  $('btn-sizes').addEventListener('click', () => act('/api/sizes'));
   $('btn-folder').addEventListener('click', () => act('/api/open-folder'));
   $('banner-close').addEventListener('click', () => act('/api/dismiss'));
   $('urls').addEventListener('keydown', (e) => {

@@ -28,6 +28,7 @@ class ServerCase(unittest.TestCase):
         # Keine echten grab.py-Prozesse (Netz) in Servertests: Vorgaenge nur vormerken.
         self.started = []
         self.state.start_worker = lambda mode: self.started.append(mode) or True
+        self.state.start_sizes = lambda: self.started.append('sizes') or True
         self.token = 'testtoken-1234567890'
         port = [0]
         self.server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), ui.make_handler(self.state, self.token, port))
@@ -154,6 +155,20 @@ class TestQueueApi(ServerCase):
         self.assertEqual(self.request('POST', '/api/queue/move', {'id': a, 'before': None})[0], 400)
         self.assertEqual(ids(), [a, b, c])
 
+    def test_sizes_button_enables_and_starts_when_idle(self):
+        self.request('POST', '/api/queue/add', {'urls': ['https://a.example/1']})
+        self.started.clear()
+        self.assertEqual(self.request('POST', '/api/sizes', {})[0], 200)
+        self.assertTrue(self.state.sizes_enabled)
+        self.assertEqual(self.started, ['preview', 'sizes'])   # Titel fehlt noch: Titelsuche, Groessen parallel
+
+    def test_stop_ends_size_scan_too(self):
+        tree = unittest.mock.Mock()
+        self.state.size_worker, self.state.size_tree = object(), tree
+        self.request('POST', '/api/stop', {})
+        self.assertTrue(self.state.size_stop)
+        tree.kill.assert_called_once()
+
     def test_start_needs_waiting_items(self):
         status, _, body = self.request('POST', '/api/start', {})
         self.assertEqual(status, 400)
@@ -278,6 +293,70 @@ class TestEvents(unittest.TestCase):
             ui.State.preview_eta(cur, 4)
             self.assertEqual(cur['eta_seconds'], 0)                     # alle fertig
 
+    def test_sizes_on_request_only_and_events(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        config = g.load_config(CONFIG_PATH)
+        config['storage'] = tmp.name
+        s = ui.State(config, CONFIG_PATH)
+        a = {'id': 'a', 'url': 'https://a.example/1', 'status': 'waiting', 'title_state': 'ok'}
+        b = {'id': 'b', 'url': 'https://a.example/2', 'status': 'waiting', 'title_state': 'ok'}
+        c = {'id': 'c', 'url': 'https://a.example/3', 'status': 'waiting', 'title_state': 'pending'}
+        s.queue = [a, b, c]
+        self.assertEqual(s.pending_sizes(), [])                 # ohne Knopfdruck nie
+        s.sizes_enabled = True
+        self.assertEqual(s.pending_sizes(), [a, b])             # erst nach gefundenem Titel
+        download = {'id': 'x', 'phase': 'download', 'percent': 40}
+        s.size_batch, s.size_job, s.current = [a, b], {'done': 0, 'total': 2}, download
+        s.handle_size_event({'type': 'size_start', 'index': 0})
+        s.handle_size_event({'type': 'phase', 'phase': 'sizes'})          # darf die Download-Anzeige nicht aendern
+        s.handle_size_event({'type': 'size', 'index': 0, 'bytes': 700})
+        s.handle_size_event({'type': 'size', 'index': 1, 'bytes': 'viel'})
+        s.handle_size_event({'type': 'error', 'ident': 'X', 'message': 'kaputt'})
+        self.assertEqual((a['size_state'], a['expected_size']), ('ok', 700))
+        self.assertEqual((b['size_state'], b['expected_size']), ('unknown', None))
+        self.assertEqual(download, {'id': 'x', 'phase': 'download', 'percent': 40})
+        self.assertEqual(s.size_error['message'], 'kaputt')
+        snap = s.snapshot()
+        self.assertTrue(snap['sizes_enabled'])
+        self.assertEqual(snap['size_job'], {'done': 2, 'total': 2})
+
+    def test_failed_size_scan_does_not_loop(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        config = g.load_config(CONFIG_PATH)
+        config['storage'] = tmp.name
+        s = ui.State(config, CONFIG_PATH)
+        s.sizes_enabled = True
+        s.queue = [{'id': 'a', 'url': 'https://a.example/1', 'status': 'waiting', 'title_state': 'ok'}]
+        with unittest.mock.patch.object(ui.Worker, 'run_grab', return_value=1):
+            ui.SizeWorker(s).run()
+        self.assertEqual(s.queue[0]['size_state'], 'unknown')
+        self.assertEqual(s.pending_sizes(), [])
+        self.assertEqual((s.size_worker, s.size_job, s.size_batch), (None, None, None))
+        self.assertIsNone(s.banner)
+
+    def test_security_abort_in_size_scan_stops_download(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        config = g.load_config(CONFIG_PATH)
+        config['storage'] = tmp.name
+        s = ui.State(config, CONFIG_PATH)
+        s.sizes_enabled = True
+        s.queue = [{'id': 'a', 'url': 'https://a.example/1', 'status': 'waiting', 'title_state': 'ok'}]
+        s.worker, s.tree = object(), unittest.mock.Mock()   # laufender Download
+
+        def grab(self, *a, **kw):
+            s.handle_size_event({'type': 'error', 'ident': 'HOME_COUNTRY_DETECTED', 'message': 'Heimatland erkannt.'})
+            return 2
+
+        with unittest.mock.patch.object(ui.Worker, 'run_grab', grab):
+            ui.SizeWorker(s).run()
+        self.assertTrue(s.stop_requested)
+        s.tree.kill.assert_called_once()
+        self.assertEqual(s.banner['level'], 'bad')
+        self.assertIn('Heimatland erkannt.', s.banner['text'])
+
     def test_redirect_hosts_only_in_memory(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
@@ -326,6 +405,8 @@ class TestTitleSearch(unittest.TestCase):
         b = {'id': 'b', 'url': 'https://a.example/2', 'status': 'waiting', 'title': None, 'title_state': 'queued'}
         s.queue, s.preview_batch, s.current = [a, b], [a, b], {'id': 'preview'}
         self.assertNotIn('preview_started', s.current)
+        s.handle_event({'type': 'check', 'key': 'firewall', 'ok': True, 'detail': 'x'})
+        self.assertEqual(s.current['check_step'], 'firewall')
         s.handle_event({'type': 'preview_start', 'index': 0})
         self.assertEqual(a['title_state'], 'running')
         self.assertIsInstance(s.current['preview_started'], float)

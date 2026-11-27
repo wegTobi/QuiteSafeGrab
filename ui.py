@@ -96,9 +96,59 @@ class State:
         # Seiten, die nur per Weiterleitung aufloesbar waren: NUR im Arbeitsspeicher, nie gespeichert,
         # weg beim Beenden der Oberflaeche. Beschleunigt nur die Reihenfolge der Versuche.
         self.redirect_hosts = set()
+        # "Gesamtlaufzeit berechnen": ab dann bekommen wartende Links ihre Dateigroesse (nur im Speicher).
+        self.sizes_enabled = False
+        self.size_batch = None
+        self.size_worker = None    # laeuft parallel zum Hauptvorgang (eigener Prozess)
+        self.size_tree = None
+        self.size_stop = False
+        self.size_job = None       # {'done', 'total'} fuer die Anzeige
+        self.size_error = None
 
     def pending_titles(self):
         return [x for x in self.queue if x['status'] == 'waiting' and x.get('title_state') == 'pending']
+
+    def pending_sizes(self):
+        if not self.sizes_enabled:
+            return []
+        return [x for x in self.queue if x['status'] == 'waiting' and x.get('title_state') == 'ok'
+                and x.get('size_state') in (None, 'queued')]
+
+    def start_sizes(self):
+        """Groessenabfrage starten, falls angefordert, noetig und nicht schon laufend (Aufrufer haelt self.lock)."""
+        if self.size_worker is not None or not self.pending_sizes():
+            return False
+        self.size_stop = False
+        self.size_worker = SizeWorker(self)
+        self.size_worker.start()
+        return True
+
+    def handle_size_event(self, ev):
+        """Ereignisse der Groessenabfrage: nur Pruefampeln, Groessen und Fehlertext - nie die Download-Anzeige."""
+        kind = ev.get('type')
+        if kind == 'check':
+            self.set_check(ev.get('key'), ev.get('ok'), ev.get('detail'))
+        elif kind == 'redirect_host':
+            self.handle_event(ev)
+        elif kind == 'error':
+            self.size_error = {'ident': str(ev.get('ident', '')), 'message': g.safe_text(ev.get('message', ''))[:500]}
+            key = ev.get('check')
+            if key in self.checks:
+                self.set_check(key, False, ev.get('message', ''))
+        elif kind in ('size_start', 'size'):
+            batch = self.size_batch or []
+            idx = ev.get('index')
+            if not isinstance(idx, int) or not 0 <= idx < len(batch):
+                return
+            item = batch[idx]
+            if kind == 'size_start':
+                item['size_state'] = 'running'
+            else:
+                size = ev.get('bytes')
+                ok = isinstance(size, int) and not isinstance(size, bool) and 0 < size < 2 ** 50
+                item.update(expected_size=size if ok else None, size_state='ok' if ok else 'unknown')
+                if self.size_job is not None:
+                    self.size_job['done'] = idx + 1
 
     def start_worker(self, mode):
         """Startet einen Vorgang, falls keiner laeuft (Aufrufer haelt self.lock)."""
@@ -160,6 +210,8 @@ class State:
         cur = self.current
         if kind == 'check':
             self.set_check(ev.get('key'), ev.get('ok'), ev.get('detail'))
+            if cur is not None and ev.get('key') in CHECK_KEYS:
+                cur['check_step'] = ev.get('key')   # zuletzt abgeschlossener Pruefpunkt
         elif kind == 'phase' and cur is not None:
             cur['phase'] = ev.get('phase')
             if ev.get('phase') in ('resolve', 'download', 'remux', 'verify'):
@@ -229,7 +281,8 @@ class State:
                    'unknown')
         return {'checks': self.checks, 'overall': overall, 'last_check': self.last_check,
                 'queue': [dict(item) for item in self.queue], 'current': dict(self.current) if self.current else None,
-                'mode': self.mode, 'banner': self.banner, 'start_pending': self.start_after_preview, 'log': list(self.log)[-120:], 'history': history,
+                'mode': self.mode, 'banner': self.banner, 'start_pending': self.start_after_preview,
+                'sizes_enabled': self.sizes_enabled, 'size_job': dict(self.size_job) if self.size_job else None, 'log': list(self.log)[-120:], 'history': history,
                 'storage_finished': str(self.storage / 'finished'), 'browser': self.config.get('ui_browser', 'auto'),
                 # Mullvad meldet Seiten absichtlich UTC (Fingerprint-Schutz): Ortszeit-Versatz kommt vom Server.
                 'tz_offset': time.localtime().tm_gmtoff, 'server_time': now()}
@@ -242,8 +295,10 @@ class Worker(threading.Thread):
         super().__init__(daemon=True)
         self.s, self.mode = state, mode
 
-    def run_grab(self, extra, stdin_text=None):
+    def run_grab(self, extra, stdin_text=None, handler=None, tree_attr='tree'):
+        """Startet grab.py; Ereignisse gehen an handler (Vorgabe: Hauptvorgang), der Prozessbaum an s.<tree_attr>."""
         s = self.s
+        handler = handler or s.handle_event
         argv = [sys.executable, '-I', str(APP / 'grab.py'), '--events', '--config', str(s.config_path)] + extra
         env = {k: v for k, v in os.environ.items()
                if not k.upper().startswith(('PYTHON', 'YTDLP')) and k.upper() not in
@@ -257,7 +312,7 @@ class Worker(threading.Thread):
                                 cwd=str(APP), env=env, **sc.popen_kwargs())
         tree = sc.ProcessTree(proc)
         with s.lock:
-            s.tree = tree
+            setattr(s, tree_attr, tree)
         if stdin_text is not None:
             # Links ueber die Standardeingabe: tauchen nicht in der Prozessliste auf.
             try:
@@ -274,7 +329,7 @@ class Worker(threading.Thread):
                         try:
                             ev = json.loads(line[len(g.EVENT_PREFIX):])
                             if isinstance(ev, dict):
-                                s.handle_event(ev)
+                                handler(ev)
                         except ValueError:
                             pass
                     elif line.strip() and not line.startswith('[download] ') or line.startswith('[download] Destination'):
@@ -282,7 +337,7 @@ class Worker(threading.Thread):
             return proc.wait()
         finally:
             with s.lock:
-                s.tree = None
+                setattr(s, tree_attr, None)
             tree.close()
             proc.stdout.close()
 
@@ -318,6 +373,8 @@ class Worker(threading.Thread):
                 prefix = 'Sicherheitsabbruch: ' if code == 2 else 'Titelsuche fehlgeschlagen: '
                 s.banner = {'level': 'bad', 'text': prefix + (err.get('message') or f'Exitcode {code}')}
             s.save_checks()
+            if code == 0:
+                s.start_sizes()   # Titel da: angeforderte Groessen sofort, parallel zu allem Weiteren
         return code
 
     def run(self):
@@ -332,6 +389,7 @@ class Worker(threading.Thread):
                     return
                 with s.lock:
                     s.banner = None
+                    s.start_sizes()   # angeforderte Groessen laufen parallel zum Download
             if self.mode == 'check':
                 with s.lock:
                     s.current = {'id': 'check', 'phase': 'checks', 'title': 'Sicherheitspruefung', 'started': now()}
@@ -377,7 +435,7 @@ class Worker(threading.Thread):
                                     ' Die Warteschlange wurde angehalten.'}
                         break
             with s.lock:
-                if s.stop_requested:
+                if s.stop_requested and (s.banner or {}).get('level') != 'bad':   # Sicherheitsabbruch bleibt sichtbar
                     s.banner = {'level': 'warn', 'text': 'Angehalten.'}
                 elif not s.banner or s.banner.get('level') != 'bad':
                     done = sum(1 for x in s.queue if x['status'] == 'done')
@@ -400,6 +458,59 @@ class Worker(threading.Thread):
                 elif not halted and s.pending_titles():
                     # Waehrend eines Downloads hinzugefuegte Links bekommen danach ihre Titel.
                     s.start_worker('preview')
+                if not halted:
+                    s.start_sizes()
+
+
+class SizeWorker(Worker):
+    """Dateigroessen der wartenden Eintraege - eigener grab.py-Prozess, laeuft parallel zum Hauptvorgang.
+    Eigene Ereignisverarbeitung (beruehrt die Download-Anzeige nicht), eigener Prozessbaum (Stopp)."""
+
+    def __init__(self, state):
+        super().__init__(state, 'sizes')
+
+    def run(self):
+        s = self.s
+        try:
+            while True:
+                with s.lock:
+                    batch = s.pending_sizes()
+                    if not batch or s.size_stop:
+                        break
+                    for item in batch:
+                        item['size_state'] = 'queued'
+                    s.size_batch = batch
+                    s.size_job = {'done': 0, 'total': len(batch)}
+                    s.size_error = None
+                    urls = '\n'.join(x['url'] for x in batch) + '\n'
+                code = self.run_grab(['--sizes'], stdin_text=urls, handler=s.handle_size_event, tree_attr='size_tree')
+                with s.lock:
+                    for item in batch:
+                        if item.get('size_state') in ('queued', 'running'):
+                            # angehalten: spaeter erneut; Fehler: nicht endlos wiederholen
+                            item['size_state'] = None if s.size_stop else 'unknown'
+                    s.size_batch = None
+                    if code == 2 and not s.size_stop:
+                        # Sicherheitsabbruch in der Groessenabfrage gilt fuer alles: auch den Download anhalten.
+                        msg = (s.size_error or {}).get('message') or f'Exitcode {code}'
+                        s.banner = {'level': 'bad', 'text': 'Sicherheitsabbruch (Groessenabfrage): ' + msg +
+                                    ' Die Warteschlange wurde angehalten.'}
+                        if s.worker is not None:
+                            s.stop_requested = True
+                            if s.tree is not None:
+                                s.tree.kill()
+                    s.save_checks()
+                    if code != 0:
+                        break
+        except Exception as exc:  # nie still scheitern
+            with s.lock:
+                s.banner = {'level': 'bad', 'text': f'Interner Fehler der Groessenabfrage ({type(exc).__name__}).'}
+        finally:
+            with s.lock:
+                s.size_worker = None
+                s.size_batch = None
+                s.size_job = None
+                s.size_stop = False
 
 
 def make_handler(state, token, port_holder):
@@ -563,6 +674,14 @@ def make_handler(state, token, port_holder):
                     raise ValueError('Es laeuft bereits ein Vorgang.')
                 s.start_worker('download')
                 return {'ok': True}
+            if path == '/api/sizes':
+                # Ab jetzt Groessen fuer alle wartenden Links mit Titel - sofort und parallel zum Download.
+                # Links ohne Titel folgen direkt nach ihrer Titelsuche.
+                s.sizes_enabled = True
+                if s.worker is None and s.pending_titles():
+                    s.start_worker('preview')
+                s.start_sizes()
+                return {'ok': True}
             if path == '/api/check':
                 if not s.start_worker('check'):
                     raise ValueError('Es laeuft bereits ein Vorgang.')
@@ -572,6 +691,10 @@ def make_handler(state, token, port_holder):
                     s.stop_requested = True
                     if s.tree is not None:
                         s.tree.kill()
+                if s.size_worker is not None:
+                    s.size_stop = True
+                    if s.size_tree is not None:
+                        s.size_tree.kill()
                 return {'ok': True}
             if path == '/api/open-folder':
                 folder = s.storage / 'finished'
@@ -777,7 +900,7 @@ def main(argv=None):
                         print('[debug] Browserprofil nicht mehr in Benutzung.', flush=True)
                     gone_since = gone_since or time.monotonic()
             with state.lock:
-                busy = state.worker is not None
+                busy = state.worker is not None or state.size_worker is not None
                 silent = time.monotonic() - state.last_seen
             if busy:
                 continue
@@ -796,8 +919,9 @@ def main(argv=None):
         pass
     finally:
         with state.lock:
-            if state.tree is not None:
-                state.tree.kill()
+            for tree in (state.tree, state.size_tree):
+                if tree is not None:
+                    tree.kill()
         server.server_close()
         if kind == 'edge' and not profile_in_use(kind, profile):
             reset_profile(profile)

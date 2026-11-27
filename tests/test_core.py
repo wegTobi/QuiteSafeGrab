@@ -60,6 +60,106 @@ class TestCore(unittest.TestCase):
                 resolve('http://mediathek.example/redirect/4')
             self.assertNotIn('redirect', calls)
 
+    def test_header_size(self):
+        self.assertEqual(g._header_size('HTTP/1.1 200 OK\r\nContent-Length: 1234\r\n'), 1234)
+        # Weiterleitung: nur der letzte Block zaehlt
+        self.assertEqual(g._header_size('HTTP/1.1 302 Found\nContent-Length: 0\n\nHTTP/2 200\ncontent-length: 99\n'), 99)
+        self.assertEqual(g._header_size('HTTP/1.1 206 Partial\nContent-Length: 1\nContent-Range: bytes 0-0/5000\n'), 5000)
+        self.assertIsNone(g._header_size('HTTP/1.1 302 Found\nContent-Length: 50\n\nHTTP/1.1 200 OK\n'))
+        self.assertIsNone(g._header_size('Content-Length: abc'))
+
+    def test_media_size(self):
+        calls = []
+
+        class Runner:
+            def __init__(self, answers):
+                self.answers = answers
+
+            def run(self, argv, **kw):
+                calls.append((argv, kw.get('input_text')))
+                return self.answers.pop(0)
+
+        checked = []
+
+        def public(host):
+            checked.append(host)
+            if host in ('127.0.0.1', 'router.local'):
+                raise ValueError('privat')
+
+        self.enterContext(patch.object(g, 'public_host', public))
+        voe = {'voe': True, 'media': 'https://cdn.example/v.mp4?sig=geheim', 'referer': 'https://voe.sx/', 'info': None}
+        self.assertEqual(g.media_size(voe, Runner([g.Result(0, 'HTTP/1.1 200 OK\nContent-Length: 700\n')]), Path('.')), 700)
+        self.assertEqual(checked, ['cdn.example'])
+        self.assertNotIn('--location', calls[-1][0])                  # Weiterleitungen nie blind folgen
+        argv, stdin = calls[-1]
+        self.assertIn('--head', argv)
+        self.assertNotIn('geheim', ' '.join(map(str, argv)))          # signierte Adresse nicht in der Kommandozeile
+        self.assertIn('sig=geheim', stdin)
+        # HEAD verweigert -> ein einzelnes Byte anfragen
+        calls.clear()
+        r = Runner([g.Result(22, '', 'HTTP 405'), g.Result(0, 'HTTP/1.1 206\nContent-Range: bytes 0-0/9000\n')])
+        self.assertEqual(g.media_size(voe, r, Path('.')), 9000)
+        self.assertIn('--range', calls[-1][0])
+        # Weiterleitung: Ziel wird vor dem Abruf erneut geprueft
+        checked.clear()
+        r = Runner([g.Result(0, 'HTTP/1.1 302 Found\nLocation: https://cdn2.example/v.mp4\n'),
+                    g.Result(0, 'HTTP/1.1 200 OK\nContent-Length: 800\n')])
+        self.assertEqual(g.media_size(voe, r, Path('.')), 800)
+        self.assertEqual(checked, ['cdn.example', 'cdn2.example'])
+        # Weiterleitung ins eigene Netz / auf den eigenen PC oder auf http: kein Abruf
+        for target in ('https://127.0.0.1/x', 'https://router.local/x', 'http://cdn3.example/x'):
+            calls.clear()
+            r = Runner([g.Result(0, f'HTTP/1.1 302 Found\nLocation: {target}\n')])
+            self.assertIsNone(g.media_size(voe, r, Path('.')))
+            self.assertEqual(len(calls), 1)
+        calls.clear()
+        self.assertIsNone(g.media_size(dict(voe, media='https://127.0.0.1/v.mp4'), Runner([]), Path('.')))
+        self.assertEqual(calls, [])
+        # Stream ohne Gesamtgroesse, yt-dlp-Angaben
+        self.assertIsNone(g.media_size(dict(voe, media='https://cdn.example/master.m3u8'), Runner([]), Path('.')))
+        self.assertEqual(g.media_size({'info': {'filesize_approx': 5e8}}, Runner([]), Path('.')), 500000000)
+        self.assertEqual(g.media_size({'info': {'requested_formats': [{'filesize': 3}, {'filesize': 4}]}}, Runner([]), Path('.')), 7)
+        self.assertIsNone(g.media_size({'info': {'requested_formats': [{'filesize': 3}, {}]}}, Runner([]), Path('.')))
+
+    def test_media_hosts_must_be_public(self):
+        def public(host):
+            if host in ('127.0.0.1', 'fritz.box'):
+                raise ValueError('privat')
+
+        with patch.object(g, 'public_host', public):
+            g.check_media_hosts({'media': 'https://cdn.example/v.mp4', 'info': None})
+            g.check_media_hosts({'info': {'url': 'https://a.example/x', 'formats': [{'url': 'https://b.example/y'}]}})
+            for bad in ({'media': 'https://127.0.0.1/v.mp4', 'info': None},
+                        {'info': {'formats': [{'url': 'https://ok.example/1'}, {'manifest_url': 'http://fritz.box/m.m3u8'}]}},
+                        {'media': '', 'info': None}):
+                with self.assertRaises(g.Failure):
+                    g.check_media_hosts(bad)
+
+    def test_sizes_mode_checks_and_events(self):
+        checks, events = [], []
+
+        class Net:
+            def check(self, label, expected=None):
+                checks.append(label)
+                return '1.1.1.1'
+
+        class Store:
+            @contextlib.contextmanager
+            def workspace(self):
+                yield Path('.')
+
+        def resolve(url, *a):
+            if 'kaputt' in url:
+                raise g.Failure(4, 'LINK_RESOLUTION_FAILED', 'x')
+            return {'voe': True, 'media': url, 'referer': 'https://voe.sx/', 'info': None}
+
+        with patch.object(g, 'resolve_item', resolve), patch.object(g, 'media_size', lambda item, *a: 1000), \
+                patch.object(g, 'emit', lambda kind, **d: events.append((kind, d))), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(g.sizes(CONFIG, None, Net(), Store(), ['https://a.example/1', 'https://kaputt.example/2']), 0)
+        self.assertEqual(checks, ['IPv4 vor Groessenabfrage', 'IPv4 vor Groessen-Eintrag', 'IPv4 vor Groessen-Eintrag', 'IPv4 nach Groessenabfrage'])
+        self.assertIn(('size', {'index': 0, 'bytes': 1000}), events)
+        self.assertIn(('size', {'index': 1, 'bytes': None}), events)
+
     def test_unicode_and_shell_characters(self):
         name = g.video_name('Watch Grüße & $(touch pwned); `whoami`.mp4 | VOE')
         self.assertIn('Grüße_&_', name)

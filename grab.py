@@ -31,7 +31,7 @@ import urllib.parse
 import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from voe_resolver import UA, valid_url
+from voe_resolver import UA, public_host, valid_url
 import syscompat as sc
 import winguard
 
@@ -951,6 +951,33 @@ def transfer(item, config, runner, net, work, baseline):
     fail(4, 'DOWNLOAD_FAILED', f'yt-dlp fehlgeschlagen: Exit={result.code}, Timeout={result.timed_out}.')
 
 
+def media_urls(item):
+    """Alle Medienadressen, die yt-dlp fuer diesen Eintrag abrufen koennte."""
+    if item.get('info') is None:
+        return [item.get('media') or '']
+    info = item['info']
+    urls = [info.get('url'), info.get('manifest_url'), info.get('fragment_base_url')]
+    for f in (info.get('requested_formats') or []) + (info.get('formats') or []):
+        if isinstance(f, dict):
+            urls += [f.get('url'), f.get('manifest_url'), f.get('fragment_base_url')]
+    return [u for u in urls if isinstance(u, str) and u]
+
+
+def check_media_hosts(item):
+    """Vor dem Transfer: Videoquellen nur im oeffentlichen Internet - nie Heimnetz oder der eigene PC
+    (eine praeparierte Seite koennte sonst Anfragen an lokale Geraete/Dienste ausloesen)."""
+    hosts = {urllib.parse.urlsplit(u).hostname for u in media_urls(item)}
+    if not hosts or None in hosts:
+        fail(4, 'MEDIA_HOST_INVALID', 'Videoquelle ohne gueltigen Host.')
+    if len(hosts) > 20:
+        fail(4, 'MEDIA_HOST_INVALID', 'Zu viele verschiedene Videoquellen.')
+    for host in sorted(hosts):
+        try:
+            public_host(host)
+        except ValueError:
+            fail(4, 'MEDIA_HOST_PRIVATE', 'Videoquelle zeigt ins lokale Netz oder auf diesen PC - verweigert.')
+
+
 def download(url, manual, config, runner, net, store):
     with store.workspace() as work:
         phase('probe')
@@ -960,6 +987,7 @@ def download(url, manual, config, runner, net, store):
         print('Name: ' + safe_text(item['name']))
         emit('title', name=item['name'])
         phase('download')
+        check_media_hosts(item)
         raw = transfer(item, config, runner, net, work, baseline)
         phase('remux')
         clean, extension = remux(raw, runner)
@@ -1030,6 +1058,102 @@ def preview(config, runner, net, store, urls):
                 print(f'{i+1}. FEHLER: ' + safe_text(exc))
                 emit('preview', index=i, ok=False, ident=exc.ident, code=exc.code, message=str(exc))
     emit('previewed', total=len(urls), failed=failed)
+    return 0
+
+
+def _header_size(text):
+    """Groesse aus Antwortkoepfen (bei Weiterleitungen zaehlt der letzte Block)."""
+    size = None
+    for line in text.splitlines():
+        name, _, value = line.partition(':')
+        name, value = name.strip().lower(), value.strip()
+        if name == 'content-range' and '/' in value and value.rsplit('/', 1)[1].isdigit():
+            size = int(value.rsplit('/', 1)[1])
+        elif name == 'content-length' and value.isdigit():
+            size = int(value)
+        elif line.upper().startswith('HTTP/'):
+            size = None
+    return size if size and size > 1 else None
+
+
+def _header_location(text):
+    """Ziel einer Weiterleitung (3xx + Location), sonst None."""
+    lines = text.splitlines()
+    status = lines[0].split() if lines else []
+    if len(status) < 2 or not status[1].isdigit() or not 300 <= int(status[1]) < 400:
+        return None
+    for line in lines[1:]:
+        name, _, value = line.partition(':')
+        if name.strip().lower() == 'location' and value.strip():
+            return value.strip()
+    return None
+
+
+def media_size(item, runner, work):
+    """Dateigroesse ohne Download: yt-dlp-Angaben, sonst Kopfzeilen der Videodatei (HEAD, notfalls 1 Byte).
+    HLS-Streams haben keine Gesamtgroesse -> None. Die Medienadresse geht per Standardeingabe an curl."""
+    info = item.get('info')
+    if info is not None:
+        size = info.get('filesize') or info.get('filesize_approx')
+        if not size and info.get('requested_formats'):
+            parts = [f.get('filesize') or f.get('filesize_approx') for f in info['requested_formats']]
+            size = sum(parts) if all(parts) else None
+        return int(size) if isinstance(size, (int, float)) and size > 0 else None
+    url = item.get('media') or ''
+    if '.m3u8' in urllib.parse.urlsplit(url).path:
+        return None
+    # Weiterleitungen nicht blind folgen: jedes Ziel nur HTTPS und nur oeffentliche Adressen
+    # (kein Heimnetz, kein 127.0.0.1) - gleiche Regel wie voe_resolver.follow().
+    for _ in range(4):
+        p = urllib.parse.urlsplit(url)
+        if p.scheme != 'https' or not p.hostname:
+            return None
+        try:
+            public_host(p.hostname)
+        except ValueError:
+            return None
+        config_text = 'url = "' + url.replace('\\', '\\\\').replace('"', '\\"') + '"\n'
+        base = [CURL, '--disable', '--silent', '--fail', '--max-time', '15', '--connect-timeout', '5',
+                '--noproxy', '*', '--proto', '=https', '--user-agent', UA, '--referer', item['referer'], '--config', '-']
+        target = None
+        for extra in (['--head'], ['--range', '0-0', '--dump-header', '-', '--output', os.devnull]):
+            r = runner.run(base[:1] + extra + base[1:], timeout=20, cwd=work, input_text=config_text)
+            if r.code != 0 or r.timed_out:
+                continue
+            location = _header_location(r.out)
+            if location:
+                target = urllib.parse.urljoin(url, location)
+                break
+            size = _header_size(r.out)
+            if size:
+                return size
+        if not target:
+            return None
+        url = target
+    return None
+
+
+def sizes(config, runner, net, store, urls):
+    """--sizes fuer die Oberflaeche: Dateigroessen der wartenden Links ermitteln, ohne herunterzuladen."""
+    phase('sizes')
+    with store.workspace() as work:
+        baseline = net.check('IPv4 vor Groessenabfrage')
+        for i, url in enumerate(urls):
+            emit('size_start', index=i)
+            print(f'Groesse {i+1}/{len(urls)}...')
+            try:
+                net.check('IPv4 vor Groessen-Eintrag', baseline)
+                size = media_size(resolve_item(url, None, config, runner, net, work, baseline), runner, work)
+            except Failure as exc:
+                if exc.code == 2:
+                    raise
+                print(f'{i+1}. Groesse unbekannt: ' + safe_text(exc))
+                emit('size', index=i, bytes=None)
+                continue
+            print(f'{i+1}. Groesse: ' + (f'{size / 1024**2:.0f} MiB' if size else 'unbekannt'))
+            emit('size', index=i, bytes=size)
+        net.check('IPv4 nach Groessenabfrage', baseline)
+    emit('sized', total=len(urls))
     return 0
 
 
@@ -1116,6 +1240,7 @@ def main(argv=None):
     parser.add_argument('--events', action='store_true', help=argparse.SUPPRESS)  # Ereigniszeilen fuer ui.py
     parser.add_argument('--preview', action='store_true',
                         help='Nur Titel ermitteln (ein Link pro Zeile auf der Standardeingabe), kein Download.')
+    parser.add_argument('--sizes', action='store_true', help=argparse.SUPPRESS)  # Dateigroessen fuer ui.py (Links auf stdin)
     args = parser.parse_args(argv)
     global EVENTS
     EVENTS = args.events
@@ -1150,6 +1275,10 @@ def main(argv=None):
             if args.url:
                 fail(1, 'INPUT_CONFLICT', '--preview liest die Links von der Standardeingabe.')
             return preview(config, runner, net, store, read_preview_urls(sys.stdin))
+        if args.sizes:
+            if args.url:
+                fail(1, 'INPUT_CONFLICT', '--sizes liest die Links von der Standardeingabe.')
+            return sizes(config, runner, net, store, read_preview_urls(sys.stdin))
         if args.url:
             args.url = complete_url(args.url)
             try:
