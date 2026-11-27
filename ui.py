@@ -139,6 +139,21 @@ class State:
         if key in self.checks:
             self.checks[key] = {'ok': ok, 'detail': g.safe_text(detail or '')[:300], 'time': now(), 'stale': False}
 
+    @staticmethod
+    def preview_eta(cur, total):
+        """Restzeit der Titelsuche. Der erste Link einer Seite ist oft deutlich langsamer (Weg wird erst
+        gefunden), deshalb erst ab dem zweiten fertigen Link und nur aus den Links nach dem ersten."""
+        marks = cur.setdefault('preview_marks', [])
+        marks.append(now())
+        remaining = total - len(marks)
+        if remaining <= 0:
+            cur.update(eta_seconds=0, eta_at=marks[-1])   # nur noch die Abschlusspruefung
+        elif len(marks) >= 2:
+            per = (marks[-1] - marks[0]) / (len(marks) - 1)
+            cur.update(eta_seconds=round(per * remaining), eta_at=marks[-1])
+        else:
+            cur.update(eta_seconds=None, eta_at=None)
+
     # ---- Ereignisse aus grab.py
     def handle_event(self, ev):
         kind = ev.get('type')
@@ -174,16 +189,19 @@ class State:
             if kind == 'preview_start':
                 item['title_state'] = 'running'
                 if cur is not None:
+                    cur.setdefault('preview_started', now())
                     cur['title'] = f'Titel {idx + 1} von {len(batch)} wird gesucht'
                     cur['percent'] = idx / len(batch) * 100
-            elif ev.get('ok'):
-                item.update(title=ev.get('name'), title_state='ok')
+            else:
+                if ev.get('ok'):
+                    item.update(title=ev.get('name'), title_state='ok')
+                else:
+                    item.update(title_state='failed', status='failed', finished=now(),
+                                error={'ident': str(ev.get('ident', '')), 'code': ev.get('code'),
+                                       'message': g.safe_text(ev.get('message', ''))[:500]})
                 if cur is not None:
                     cur['percent'] = (idx + 1) / len(batch) * 100
-            else:
-                item.update(title_state='failed', status='failed', finished=now(),
-                            error={'ident': str(ev.get('ident', '')), 'code': ev.get('code'),
-                                   'message': g.safe_text(ev.get('message', ''))[:500]})
+                    self.preview_eta(cur, len(batch))
         elif kind == 'error':
             ident = str(ev.get('ident', ''))
             key = ev.get('check')   # betroffene Ampel, von grab.py mitgeschickt

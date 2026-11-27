@@ -266,6 +266,18 @@ class TestEvents(unittest.TestCase):
         self.assertTrue(again.checks['ipv4']['stale'])
         self.assertEqual(again.snapshot()['overall'], 'bad')
 
+    def test_preview_eta_starts_after_second_link(self):
+        cur, clock = {}, iter([100.0, 104.0, 110.0, 116.0])   # Link 1 langsam, danach je 6 s
+        with unittest.mock.patch.object(ui, 'now', lambda: next(clock)):
+            ui.State.preview_eta(cur, 5)
+            self.assertIsNone(cur['eta_seconds'])                       # nach Link 1: noch keine Schaetzung
+            ui.State.preview_eta(cur, 5)
+            self.assertEqual((cur['eta_seconds'], cur['eta_at']), (12, 104.0))   # 3 offen x 4 s
+            ui.State.preview_eta(cur, 5)
+            self.assertEqual(cur['eta_seconds'], 10)                    # 2 offen x 5 s (Mittel aus 4 und 6)
+            ui.State.preview_eta(cur, 4)
+            self.assertEqual(cur['eta_seconds'], 0)                     # alle fertig
+
     def test_redirect_hosts_only_in_memory(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
@@ -313,8 +325,10 @@ class TestTitleSearch(unittest.TestCase):
         a = {'id': 'a', 'url': 'https://a.example/1', 'status': 'waiting', 'title': None, 'title_state': 'queued'}
         b = {'id': 'b', 'url': 'https://a.example/2', 'status': 'waiting', 'title': None, 'title_state': 'queued'}
         s.queue, s.preview_batch, s.current = [a, b], [a, b], {'id': 'preview'}
+        self.assertNotIn('preview_started', s.current)
         s.handle_event({'type': 'preview_start', 'index': 0})
         self.assertEqual(a['title_state'], 'running')
+        self.assertIsInstance(s.current['preview_started'], float)
         self.assertIn('1 von 2', s.current['title'])
         s.handle_event({'type': 'preview', 'index': 0, 'ok': True, 'name': 'Big_Buck_Bunny'})
         s.handle_event({'type': 'preview', 'index': 1, 'ok': False, 'ident': 'VOE_RESOLUTION_FAILED', 'code': 4,

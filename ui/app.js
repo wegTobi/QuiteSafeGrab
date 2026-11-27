@@ -178,6 +178,11 @@ function renderNow(st) {
     li.hidden = st.mode === 'check' && i > 0;
   }
   const bar = $('bar');
+  // Titelsuche: kein Balken, nur Restzeit und Laufzeit (das drehende Rädchen zeigt, dass es läuft).
+  const previewing = st.mode === 'preview';
+  bar.hidden = previewing;
+  for (const id of ['st-pct', 'st-speed', 'st-avg', 'st-total']) $(id).parentElement.hidden = previewing;
+  $('st-elapsed').parentElement.style.order = previewing ? '-1' : '';
   // Prozent nur beim echten Download (nicht bei Titelsuche oder Prüfungen).
   const downloading = st.mode === 'download' && cur.phase === 'download';
   const pct = downloading && typeof cur.percent === 'number' ? cur.percent : null;
@@ -200,7 +205,15 @@ function renderNow(st) {
   const since = cur.download_started ? serverNow() - cur.download_started : 0;
   $('st-avg').textContent = downloading && pct !== null && totalBytes && since > 1
     ? speedText(totalBytes * pct / 100 / since) : '–';
-  $('st-eta').textContent = cur.phase === 'download' && cur.eta ? cur.eta : '–';
+  if (previewing) {
+    // erst ab dem zweiten fertigen Link berechnet (Server), hier nur heruntergezählt
+    const left = typeof cur.eta_seconds === 'number' ? cur.eta_seconds - (serverNow() - cur.eta_at) : null;
+    const calculating = typeof cur.preview_started === 'number' && serverNow() - cur.preview_started >= 5;
+    $('st-eta').textContent = left === null ? (calculating ? 'wird berechnet …' : '–')
+      : left > 0 ? 'ca. ' + duration(left) : 'gleich fertig';
+  } else {
+    $('st-eta').textContent = cur.phase === 'download' && cur.eta ? cur.eta : '–';
+  }
   $('st-total').textContent = cur.total ? unit(cur.total) : '–';
   $('st-elapsed').textContent = cur.started ? duration(serverNow() - cur.started) : '–';
 }
