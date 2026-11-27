@@ -288,7 +288,6 @@ function renderQueue(st) {
       grip.disabled = true;
       grip.setAttribute('aria-hidden', 'true');
     } else {
-      grip.title = 'Ziehen, um die Reihenfolge zu ändern (oder Pfeiltasten)';
       grip.setAttribute('aria-label', 'Verschieben');
       grip.addEventListener('pointerdown', (e) => startDrag(e, li, item.id));
       grip.addEventListener('keydown', (e) => keyMove(e, li, item.id));
