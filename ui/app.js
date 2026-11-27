@@ -205,8 +205,75 @@ function renderNow(st) {
   $('st-elapsed').textContent = cur.started ? duration(serverNow() - cur.started) : '–';
 }
 
+// ---- Reihenfolge per Ziehen am Griff (Pointer-Ereignisse: Maus, Stift, Touch; kein HTML5-Drag-and-drop)
+let drag = null;   // { li, id } solange gezogen wird; dann wird die Liste nicht neu aufgebaut
+
+function moveTo(id, li) {
+  // Neue Position = vor dem naechsten Eintrag (oder ans Ende).
+  const next = li.nextElementSibling;
+  return act('/api/queue/move', { id, before: next ? next.dataset.id : null });
+}
+
+function startDrag(e, li, id) {
+  if (e.button !== 0 || drag) return;
+  e.preventDefault();
+  // Ereignisse am Dokument abhoeren: setPointerCapture geht verloren, sobald der Eintrag im DOM umgesetzt wird.
+  const doc = document;
+  const pid = e.pointerId;
+  const ul = li.parentElement;
+  const before = li.nextElementSibling;
+  drag = { li, id };
+  li.classList.add('dragging');
+  const onMove = (ev) => {
+    if (ev.pointerId !== pid) return;
+    ev.preventDefault();
+    const r = ul.getBoundingClientRect();
+    if (ev.clientY < r.top + 24) ul.scrollTop -= 12;          // Liste mitscrollen
+    else if (ev.clientY > r.bottom - 24) ul.scrollTop += 12;
+    for (const other of ul.children) {
+      if (other === li) continue;
+      const b = other.getBoundingClientRect();
+      if (ev.clientY >= b.top && ev.clientY <= b.bottom) {
+        if (ev.clientY < b.top + b.height / 2) ul.insertBefore(li, other);
+        else ul.insertBefore(li, other.nextElementSibling);
+        break;
+      }
+    }
+  };
+  const onEnd = (ev) => {
+    if (ev.pointerId !== pid) return;
+    doc.removeEventListener('pointermove', onMove);
+    doc.removeEventListener('pointerup', onEnd);
+    doc.removeEventListener('pointercancel', onEnd);
+    doc.body.classList.remove('sorting');
+    li.classList.remove('dragging');
+    drag = null;
+    if (ev.type === 'pointercancel') { ul.insertBefore(li, before); return; }
+    if (li.nextElementSibling !== before) moveTo(id, li);
+  };
+  doc.body.classList.add('sorting');
+  doc.addEventListener('pointermove', onMove);
+  doc.addEventListener('pointerup', onEnd);
+  doc.addEventListener('pointercancel', onEnd);
+}
+
+function keyMove(e, li, id) {
+  // Tastatur: Griff fokussieren, Pfeil hoch/runter verschiebt um eine Stelle.
+  const ul = li.parentElement;
+  if (e.key === 'ArrowUp' && li.previousElementSibling) ul.insertBefore(li, li.previousElementSibling);
+  else if (e.key === 'ArrowDown' && li.nextElementSibling) ul.insertBefore(li, li.nextElementSibling.nextElementSibling);
+  else return;
+  e.preventDefault();
+  e.currentTarget.focus();   // Umsetzen im DOM nimmt den Fokus weg
+  moveTo(id, li);
+}
+
 function renderQueue(st) {
+  if (drag) return;   // waehrend des Ziehens nicht neu zeichnen
   const ul = $('queue');
+  // Fokus auf einem Griff ueber das Neuzeichnen retten (Tastaturbedienung)
+  const active = document.activeElement;
+  const focusId = active && active.classList.contains('grip') && ul.contains(active) ? active.closest('li').dataset.id : null;
   ul.replaceChildren();
   $('queue-empty').hidden = st.queue.length > 0;
   const done = st.queue.filter((x) => x.status === 'done').length;
@@ -214,6 +281,19 @@ function renderQueue(st) {
   $('queue-count').textContent = done + ' von ' + st.queue.length + ' fertig';
   for (const item of st.queue) {
     const li = el('li');
+    li.dataset.id = item.id;
+    const grip = el('button', 'grip', '⋮⋮');
+    grip.type = 'button';
+    if (item.status === 'running') {
+      grip.disabled = true;
+      grip.setAttribute('aria-hidden', 'true');
+    } else {
+      grip.title = 'Ziehen, um die Reihenfolge zu ändern (oder Pfeiltasten)';
+      grip.setAttribute('aria-label', 'Verschieben');
+      grip.addEventListener('pointerdown', (e) => startDrag(e, li, item.id));
+      grip.addEventListener('keydown', (e) => keyMove(e, li, item.id));
+    }
+    li.append(grip);
     const main = el('div', 'item-main');
     const ts = item.title_state;
     const searching = item.status === 'waiting' && (ts === 'running' || ts === 'queued' || ts === 'pending');
@@ -246,6 +326,7 @@ function renderQueue(st) {
     }
     li.append(main, actions);
     ul.append(li);
+    if (item.id === focusId && !grip.disabled) grip.focus();
   }
 }
 

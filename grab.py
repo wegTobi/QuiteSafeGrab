@@ -736,6 +736,20 @@ def probe(config, runner, net, work):
     return net.check('IPv4 nach Probe', baseline)
 
 
+_redirect_hosts = set()   # Seiten, deren Links in diesem Lauf nur per Weiterleitung aufloesbar waren
+REDIRECT_HOSTS_ENV = 'QSGRAB_REDIRECT_HOSTS'
+HOST_RE = re.compile(r'(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}')
+
+
+def load_redirect_hosts(environ):
+    """Von ui.py mitgegebene Seiten (nur im Speicher der Oberflaeche, nie auf der Festplatte).
+    Aendert nur die Reihenfolge der Versuche, nie die Pruefungen; Ungueltiges wird ignoriert."""
+    for host in environ.get(REDIRECT_HOSTS_ENV, '').split(',')[:100]:
+        host = host.strip().lower()
+        if HOST_RE.fullmatch(host):
+            _redirect_hosts.add(host)
+
+
 def resolve_item(url, manual, config, runner, net, work, baseline):
     valid_url(url)
     if is_voe(url, config['voe_hosts']):
@@ -743,16 +757,28 @@ def resolve_item(url, manual, config, runner, net, work, baseline):
         if not info:
             fail(4, 'VOE_RESOLUTION_FAILED', 'VOE-Aufloesung fehlgeschlagen; Hostliste/Erreichbarkeit pruefen.')
         return voe_item(info, url, manual)
+    parts = urllib.parse.urlsplit(url)
+    redirect_first = parts.scheme == 'https' and parts.hostname in _redirect_hosts
+    if redirect_first:
+        # Diese Seite hat in diesem Lauf schon nur per Weiterleitung geklappt: den Weg zuerst versuchen
+        # (spart zwei sichere Fehlversuche mit yt-dlp). Gleiche Regeln wie unten; die Pruefung davor
+        # hat der Aufrufer gemacht, genau wie sonst vor dem ersten yt-dlp-Versuch.
+        info = run_voe_resolver(url, config, runner, work)
+        if info:
+            return voe_item(info, url, manual)
+        net.check('IPv4 vor yt-dlp-Aufloesung', baseline)
     args = ydl_common(origin(url)) + ['--skip-download', '--dump-single-json', '--', url]
     r = runner.run(args, timeout=120, cwd=work)
     if r.code and 'Unsupported URL' in r.err + r.out:
         net.check('IPv4 vor Generic-Aufloesung', baseline)
         r = runner.run(args[:-2] + ['--force-generic-extractor'] + args[-2:], timeout=120, cwd=work)
-    if (r.code != 0 or r.timed_out) and urllib.parse.urlsplit(url).scheme == 'https':
+    if (r.code != 0 or r.timed_out) and parts.scheme == 'https' and not redirect_first:
         # Weiterleitungslink (z. B. einer Mediathek) auf VOE? Nur echte HTTP-Weiterleitungen, Ziel muss in voe_hosts liegen.
         net.check('IPv4 vor Weiterleitungs-Aufloesung', baseline)
         info = run_voe_resolver(url, config, runner, work)
         if info:
+            _redirect_hosts.add(parts.hostname)   # nur im Speicher, nur fuer diesen Programmlauf
+            emit('redirect_host', host=parts.hostname)   # ui.py merkt es sich im Speicher fuer spaetere Laeufe
             return voe_item(info, url, manual)
     if r.code != 0 or r.timed_out:
         detail = safe_text((r.err + '\n' + r.out)[-2000:]).strip()
@@ -1098,6 +1124,7 @@ def main(argv=None):
         for stream in (sys.stdout, sys.stderr, sys.stdin):
             with contextlib.suppress(AttributeError, ValueError):
                 stream.reconfigure(encoding='utf-8', errors='replace')
+        load_redirect_hosts(os.environ)   # nur im Oberflaechen-Betrieb
     try:
         if sys.platform != 'win32':
             fail(1, 'PLATFORM_UNSUPPORTED', 'Start nur unter Windows moeglich.')

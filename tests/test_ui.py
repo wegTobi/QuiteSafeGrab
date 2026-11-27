@@ -138,6 +138,22 @@ class TestQueueApi(ServerCase):
         self.request('POST', '/api/queue/clear', {})
         self.assertEqual(self.state.queue, [])
 
+    def test_move_changes_order(self):
+        self.request('POST', '/api/queue/add', {'urls': ['https://a.example/1', 'https://a.example/2', 'https://a.example/3']})
+        a, b, c = [x['id'] for x in self.state.queue]
+        ids = lambda: [x['id'] for x in self.state.queue]
+        self.assertEqual(self.request('POST', '/api/queue/move', {'id': c, 'before': a})[0], 200)
+        self.assertEqual(ids(), [c, a, b])
+        self.assertEqual(self.request('POST', '/api/queue/move', {'id': c, 'before': None})[0], 200)
+        self.assertEqual(ids(), [a, b, c])
+        # ungueltig: unbekannte Ziele, sich selbst, laufender Eintrag
+        self.assertEqual(self.request('POST', '/api/queue/move', {'id': a, 'before': 'gibtsnicht'})[0], 400)
+        self.assertEqual(self.request('POST', '/api/queue/move', {'id': a, 'before': a})[0], 400)
+        self.assertEqual(self.request('POST', '/api/queue/move', {'id': 'gibtsnicht', 'before': None})[0], 400)
+        self.state.queue[0]['status'] = 'running'
+        self.assertEqual(self.request('POST', '/api/queue/move', {'id': a, 'before': None})[0], 400)
+        self.assertEqual(ids(), [a, b, c])
+
     def test_start_needs_waiting_items(self):
         status, _, body = self.request('POST', '/api/start', {})
         self.assertEqual(status, 400)
@@ -249,6 +265,39 @@ class TestEvents(unittest.TestCase):
         self.assertTrue(again.checks['ipv4']['ok'])
         self.assertTrue(again.checks['ipv4']['stale'])
         self.assertEqual(again.snapshot()['overall'], 'bad')
+
+    def test_redirect_hosts_only_in_memory(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        config = g.load_config(CONFIG_PATH)
+        config['storage'] = tmp.name
+        s = ui.State(config, CONFIG_PATH)
+        s.handle_event({'type': 'redirect_host', 'host': 'mediathek.example'})
+        for bad in ('Boese,host', 'a b.example', '../x', 123, None, 'x' * 300 + '.example'):
+            s.handle_event({'type': 'redirect_host', 'host': bad})
+        self.assertEqual(s.redirect_hosts, {'mediathek.example'})
+        # nie auf der Festplatte, nie im Browser
+        s.save_checks()
+        stored = ''.join(p.read_text(encoding='utf-8', errors='replace') for p in Path(tmp.name).rglob('*') if p.is_file())
+        self.assertNotIn('mediathek', stored)
+        self.assertNotIn('mediathek', json.dumps(s.snapshot()))
+        self.assertEqual(ui.State(config, CONFIG_PATH).redirect_hosts, set())
+        # Weitergabe an grab.py nur per Umgebungsvariable (nicht in der Kommandozeile)
+        seen = {}
+
+        def popen(argv, **kw):
+            seen.update(argv=argv, env=kw['env'])
+            raise RuntimeError('stop')
+
+        with unittest.mock.patch.object(ui.subprocess, 'Popen', popen), self.assertRaises(RuntimeError):
+            ui.Worker(s, 'preview').run_grab(['--preview'], stdin_text='')
+        self.assertEqual(seen['env'][g.REDIRECT_HOSTS_ENV], 'mediathek.example')
+        self.assertNotIn('mediathek', ' '.join(map(str, seen['argv'])))
+
+    def test_grab_reads_only_valid_redirect_hosts(self):
+        with unittest.mock.patch.object(g, '_redirect_hosts', set()):
+            g.load_redirect_hosts({g.REDIRECT_HOSTS_ENV: 'Mediathek.Example, boese host,../x,,b.example'})
+            self.assertEqual(g._redirect_hosts, {'mediathek.example', 'b.example'})
 
 
 class TestTitleSearch(unittest.TestCase):

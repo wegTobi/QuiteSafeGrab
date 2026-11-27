@@ -93,6 +93,9 @@ class State:
         self.worker = None
         self.preview_batch = None  # Eintraege der laufenden Titelsuche (Index = Zeile auf stdin)
         self.start_after_preview = False
+        # Seiten, die nur per Weiterleitung aufloesbar waren: NUR im Arbeitsspeicher, nie gespeichert,
+        # weg beim Beenden der Oberflaeche. Beschleunigt nur die Reihenfolge der Versuche.
+        self.redirect_hosts = set()
 
     def pending_titles(self):
         return [x for x in self.queue if x['status'] == 'waiting' and x.get('title_state') == 'pending']
@@ -158,6 +161,10 @@ class State:
             cur['size'] = ev.get('size')
         elif kind == 'checked':
             pass
+        elif kind == 'redirect_host':
+            host = ev.get('host')
+            if isinstance(host, str) and g.HOST_RE.fullmatch(host) and len(self.redirect_hosts) < 100:
+                self.redirect_hosts.add(host)
         elif kind in ('preview_start', 'preview'):
             batch = self.preview_batch or []
             idx = ev.get('index')
@@ -222,7 +229,11 @@ class Worker(threading.Thread):
         argv = [sys.executable, '-I', str(APP / 'grab.py'), '--events', '--config', str(s.config_path)] + extra
         env = {k: v for k, v in os.environ.items()
                if not k.upper().startswith(('PYTHON', 'YTDLP')) and k.upper() not in
-               ('HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY', 'SSLKEYLOGFILE')}
+               ('HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY', 'SSLKEYLOGFILE', g.REDIRECT_HOSTS_ENV)}
+        with s.lock:
+            if s.redirect_hosts:
+                # Umgebungsvariable statt Kommandozeile: taucht nicht in Prozesslisten/Protokollen auf.
+                env[g.REDIRECT_HOSTS_ENV] = ','.join(sorted(s.redirect_hosts))
         proc = subprocess.Popen(argv, stdin=subprocess.PIPE if stdin_text is not None else subprocess.DEVNULL,
                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                 cwd=str(APP), env=env, **sc.popen_kwargs())
@@ -499,6 +510,18 @@ def make_handler(state, token, port_holder):
             if path == '/api/queue/remove':
                 ident = body.get('id')
                 s.queue[:] = [x for x in s.queue if not (x['id'] == ident and x['status'] != 'running')]
+                return {'ok': True}
+            if path == '/api/queue/move':
+                # Reihenfolge aendern: Eintrag 'id' vor Eintrag 'before' setzen (None = ans Ende).
+                ident, before = body.get('id'), body.get('before')
+                item = next((x for x in s.queue if x['id'] == ident), None)
+                if item is None or item['status'] == 'running':
+                    raise ValueError('Dieser Eintrag kann nicht verschoben werden.')
+                if before is not None and (before == ident or not any(x['id'] == before for x in s.queue)):
+                    raise ValueError('Ungueltige Zielposition.')
+                s.queue.remove(item)
+                pos = len(s.queue) if before is None else next(i for i, x in enumerate(s.queue) if x['id'] == before)
+                s.queue.insert(pos, item)
                 return {'ok': True}
             if path == '/api/queue/clear':
                 s.queue[:] = [x for x in s.queue if x['status'] in ('waiting', 'running')]

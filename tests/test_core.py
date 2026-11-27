@@ -19,6 +19,47 @@ CONFIG = g.load_config(Path(g.__file__).with_name('config.default.toml'))
 
 
 class TestCore(unittest.TestCase):
+    def test_redirect_host_is_remembered_and_checks_stay(self):
+        """Mediathek-Weiterleitung: ab dem 2. Link derselben Seite zuerst der Weiterleitungsweg, ohne yt-dlp."""
+        calls, checks = [], []
+
+        class Runner:
+            def run(self, args, **kw):
+                calls.append('generic' if '--force-generic-extractor' in args else 'ytdlp')
+                return g.Result(1, '', 'ERROR: Unsupported URL: https://mediathek.example/redirect/1')
+
+        class Net:
+            def check(self, label, expected=None):
+                checks.append(label)
+
+        def resolver(url, *a):
+            calls.append('redirect')
+            return None if 'kaputt' in url else {'url': 'https://media.example/v.mp4', 'title': 'Film ' + url[-1]}
+
+        def resolve(url):
+            calls.clear(); checks.clear()
+            return g.resolve_item(url, None, CONFIG, Runner(), Net(), Path('.'), '1.1.1.1')
+
+        with patch.object(g, '_redirect_hosts', set()), patch.object(g, 'run_voe_resolver', side_effect=resolver):
+            self.assertEqual(resolve('https://mediathek.example/redirect/1')['name'], 'Film_1')
+            self.assertEqual(calls, ['ytdlp', 'generic', 'redirect'])
+            self.assertEqual(checks, ['IPv4 vor Generic-Aufloesung', 'IPv4 vor Weiterleitungs-Aufloesung'])
+            # 2. Link derselben Seite: direkt die Weiterleitung, keine weitere Netzanfrage
+            self.assertEqual(resolve('https://mediathek.example/redirect/2')['name'], 'Film_2')
+            self.assertEqual((calls, checks), (['redirect'], []))
+            # andere Seite: normaler Ablauf
+            resolve('https://andere.example/redirect/3')
+            self.assertEqual(calls, ['ytdlp', 'generic', 'redirect'])
+            # gemerkter Weg klappt nicht: Pruefung, dann alle Versuche, Weiterleitung nicht doppelt
+            with self.assertRaises(g.Failure):
+                resolve('https://mediathek.example/kaputt')
+            self.assertEqual(calls, ['redirect', 'ytdlp', 'generic'])
+            self.assertEqual(checks, ['IPv4 vor yt-dlp-Aufloesung', 'IPv4 vor Generic-Aufloesung'])
+            # nur HTTPS wird gemerkt/benutzt
+            with self.assertRaises(g.Failure):
+                resolve('http://mediathek.example/redirect/4')
+            self.assertNotIn('redirect', calls)
+
     def test_unicode_and_shell_characters(self):
         name = g.video_name('Watch Grüße & $(touch pwned); `whoami`.mp4 | VOE')
         self.assertIn('Grüße_&_', name)
