@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import collections
+import dataclasses
 import hmac
 import http.server
 import json
@@ -31,6 +32,7 @@ import urllib.parse
 import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import common
 import grab as g
 import syscompat as sc
 
@@ -44,14 +46,48 @@ STATIC = {'/': ('index.html', 'text/html; charset=utf-8'),
 CSP = ("default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; "
        "base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 CHECK_KEYS = g.CHECK_KEYS
-DEBUG = False
 MAX_BODY = 64 * 1024
 MAX_QUEUE = 200
+MAX_NAME = 120
 # Beenden: sobald das von Quite Safe Grab gestartete Browserfenster zu ist (und nichts laeuft).
 # Ohne erkennbares Browserfenster erst nach langer Funkstille - Browser drosseln Timer in
 # minimierten Fenstern stark, eine kurze Frist wuerde Quite Safe Grab faelschlich beenden.
 IDLE_EXIT_SEC = 30 * 60
 BROWSER_GONE_GRACE_SEC = 10
+WATCHDOG_INTERVAL_SEC = 2
+# Wird das Browserfenster bis dahin nie als offen erkannt, gilt es als geschlossen.
+BROWSER_START_GRACE_SEC = 120
+
+# Anzeige-Konstanten fuer app.js (kommen mit /api/state, damit sie nur hier stehen).
+# Pruefpunkte: Beschriftung und Hinweis, solange dieser Punkt gerade geprueft wird (Reihenfolge = CHECK_KEYS).
+CHECK_INFO = {
+    'vpn': ('VPN-Adapter', 'Sicherheitsprüfung: VPN-Adapter wird geprüft …'),
+    'firewall': ('Netzsperre', 'Sicherheitsprüfung: Netzsperre (Firewall) wird geprüft …'),
+    'selftest': ('Selbsttest', 'Sicherheitsprüfung: Selbsttest der Netzsperre …'),
+    'ipv4': ('IPv4-Ausgang', 'Sicherheitsprüfung: IPv4-Ausgang wird geprüft …'),
+    'ipv6': ('IPv6', 'Sicherheitsprüfung: IPv6 wird geprüft …'),
+    'dns': ('DNS-Ausgang', 'Sicherheitsprüfung: DNS-Ausgang wird geprüft …'),
+}
+# Phasen eines Downloads: Beschriftung und Hinweis, solange noch nichts heruntergeladen wird.
+PHASE_INFO = {
+    common.PHASE_CHECKS: ('Prüfen', 'Sicherheitsprüfung läuft (VPN, Firewall, IP, DNS) – der Download beginnt gleich.'),
+    common.PHASE_PROBE: ('Probe', 'Kurzer Probe-Download zur Kontrolle der Verbindung – der Download beginnt gleich.'),
+    common.PHASE_RESOLVE: ('Auflösen', 'Video wird gesucht – der Download beginnt gleich.'),
+    common.PHASE_DOWNLOAD: ('Download', 'Verbindung zum Video wird aufgebaut …'),
+    common.PHASE_REMUX: ('Remux', 'Video wird fertiggestellt (ohne Qualitätsverlust) …'),
+    common.PHASE_VERIFY: ('Abschluss', 'Abschlussprüfung der Verbindung …'),
+}
+UI_META = {
+    'checks': [{'key': k, 'label': CHECK_INFO[k][0], 'hint': CHECK_INFO[k][1]} for k in CHECK_KEYS],
+    'checks_done_hint': 'Sicherheitsprüfung bestanden – es geht gleich los …',
+    'phases': [{'key': p, 'label': PHASE_INFO[p][0], 'hint': PHASE_INFO[p][1]} for p in common.DOWNLOAD_PHASES],
+    'status': {'waiting': 'wartet', 'running': 'läuft', 'done': 'fertig', 'failed': 'Fehler', 'stopped': 'angehalten'},
+    'limits': {'name': MAX_NAME},
+}
+# Phasen, ab denen die Fortschrittswerte des vorigen Abschnitts nicht mehr gelten.
+RESET_PROGRESS_PHASES = (common.PHASE_RESOLVE, common.PHASE_DOWNLOAD, common.PHASE_REMUX, common.PHASE_VERIFY)
+# Abschlussmeldungen von grab.py, die die Oberflaeche bewusst nicht auswertet: Ergebnis ist der Exitcode des Prozesses.
+IGNORED_EVENTS = frozenset({'checked', 'previewed', 'sized'})
 
 
 def now():
@@ -62,13 +98,75 @@ def clean_name(text):
     text = (text or '').strip()
     if not text:
         return ''
-    if len(text) > 120 or any(c in text for c in '<>:"/\\|?*') or any(ord(c) < 32 for c in text):
-        raise ValueError('Dateiname darf hoechstens 120 Zeichen und keine der Zeichen < > : " / \\ | ? * enthalten.')
+    if len(text) > MAX_NAME or any(c in text for c in '<>:"/\\|?*') or any(ord(c) < 32 for c in text):
+        raise ValueError(f'Dateiname darf hoechstens {MAX_NAME} Zeichen und keine der Zeichen < > : " / \\ | ? * enthalten.')
     return text
 
 
+def display_name(item):
+    """Anzeige- und Dateiname eines Eintrags: eigener Name, sonst der gefundene Titel (wie die Kommandozeile)."""
+    return item.get('name') or item.get('title')
+
+
+def make_error(ev):
+    """Fehler-Dict aus einem grab.py-Ereignis (ohne Adressen, gekuerzt)."""
+    return {'ident': str(ev.get('ident', '')), 'code': ev.get('code'), 'message': g.safe_text(ev.get('message', ''))[:500]}
+
+
+def banner(level, text):
+    return {'level': level, 'text': text}
+
+
+def security_banner(message, where=''):
+    """Sicherheitsabbruch: haelt wie in der Kommandozeile die ganze Warteschlange an."""
+    return banner('bad', f'Sicherheitsabbruch{where}: {message} Die Warteschlange wurde angehalten.')
+
+
+def internal_error_banner(part, exc):
+    return banner('bad', f'Interner Fehler der {part} ({type(exc).__name__}).')
+
+
+class BatchJob:
+    """Ein Stapel fuer grab.py --preview oder --sizes: Zeile i auf stdin gehoert zu Ereignis-Index i.
+
+    field ist das Statusfeld der Eintraege ('title_state' bzw. 'size_state'). Alle Zugriffe unter State.lock.
+    """
+
+    def __init__(self, items, field):
+        self.items, self.field = list(items), field
+        self.error = None   # letztes error-Ereignis dieses Stapels (nur im Speicher)
+        for item in self.items:
+            item[field] = 'queued'
+
+    def __len__(self):
+        return len(self.items)
+
+    def stdin_text(self):
+        return '\n'.join(x['url'] for x in self.items) + '\n'
+
+    def at(self, ev):
+        """(Index, Eintrag) zum Ereignis-Index, (None, None) bei ungueltigem Index."""
+        idx = ev.get('index')
+        if not isinstance(idx, int) or not 0 <= idx < len(self.items):
+            return None, None
+        return idx, self.items[idx]
+
+    def count(self, value):
+        return sum(1 for x in self.items if x.get(self.field) == value)
+
+    def release(self, value):
+        """Aufraeumen nach dem Prozessende: nicht fertig gewordene Eintraege bekommen value."""
+        for item in self.items:
+            if item.get(self.field) in ('queued', 'running'):
+                item[self.field] = value
+
+
 class State:
-    """Gesamter Zustand der Oberflaeche; alle Zugriffe unter self.lock."""
+    """Gesamter Zustand der Oberflaeche; alle Zugriffe unter self.lock.
+
+    Methoden mit _locked im Namen sowie start_worker, start_sizes, handle_event und handle_size_event
+    setzen voraus, dass der Aufrufer self.lock haelt.
+    """
 
     def __init__(self, config, config_path):
         self.lock = threading.RLock()
@@ -78,7 +176,7 @@ class State:
         self.reload_until_alive = False
         self.page_alive = False
         self.storage = Path(os.path.abspath(Path(config['storage']).expanduser()))
-        self.checks_file = self.storage / '.state' / 'ui-checks.json'
+        self.checks_file = self.storage / g.Store.STATE_DIR / 'ui-checks.json'
         self.checks = {k: None for k in CHECK_KEYS}
         self.last_check = None
         self.load_checks()
@@ -91,19 +189,18 @@ class State:
         self.tree = None
         self.last_seen = time.monotonic()
         self.worker = None
-        self.preview_batch = None  # Eintraege der laufenden Titelsuche (Index = Zeile auf stdin)
+        self.preview_batch = None  # BatchJob der laufenden Titelsuche
         self.start_after_preview = False
         # Seiten, die nur per Weiterleitung aufloesbar waren: NUR im Arbeitsspeicher, nie gespeichert,
         # weg beim Beenden der Oberflaeche. Beschleunigt nur die Reihenfolge der Versuche.
         self.redirect_hosts = set()
         # "Gesamtlaufzeit berechnen": ab dann bekommen wartende Links ihre Dateigroesse (nur im Speicher).
         self.sizes_enabled = False
-        self.size_batch = None
+        self.size_batch = None     # BatchJob der laufenden Groessenabfrage
         self.size_worker = None    # laeuft parallel zum Hauptvorgang (eigener Prozess)
         self.size_tree = None
         self.size_stop = False
         self.size_job = None       # {'done', 'total'} fuer die Anzeige
-        self.size_error = None
 
     def pending_titles(self):
         return [x for x in self.queue if x['status'] == 'waiting' and x.get('title_state') == 'pending']
@@ -114,8 +211,20 @@ class State:
         return [x for x in self.queue if x['status'] == 'waiting' and x.get('title_state') == 'ok'
                 and x.get('size_state') in (None, 'queued')]
 
+    # ---- Planer: einziger Ort, der Titelsuche, Download und Groessen anstoesst
+    def schedule_locked(self, *, download=False, titles=False, sizes=False):
+        """download: Download starten; sonst titles: Titelsuche, falls Eintraege ohne Titel warten;
+        sizes: Groessenabfrage, falls angefordert und noetig (laeuft parallel). Jeder Start ist ein No-op,
+        wenn der jeweilige Vorgang schon laeuft."""
+        if download:
+            self.start_worker('download')
+        elif titles and self.pending_titles():
+            self.start_worker('preview')
+        if sizes:
+            self.start_sizes()
+
     def start_sizes(self):
-        """Groessenabfrage starten, falls angefordert, noetig und nicht schon laufend (Aufrufer haelt self.lock)."""
+        """Groessenabfrage starten, falls angefordert, noetig und nicht schon laufend."""
         if self.size_worker is not None or not self.pending_sizes():
             return False
         self.size_stop = False
@@ -123,35 +232,8 @@ class State:
         self.size_worker.start()
         return True
 
-    def handle_size_event(self, ev):
-        """Ereignisse der Groessenabfrage: nur Pruefampeln, Groessen und Fehlertext - nie die Download-Anzeige."""
-        kind = ev.get('type')
-        if kind == 'check':
-            self.set_check(ev.get('key'), ev.get('ok'), ev.get('detail'))
-        elif kind == 'redirect_host':
-            self.handle_event(ev)
-        elif kind == 'error':
-            self.size_error = {'ident': str(ev.get('ident', '')), 'message': g.safe_text(ev.get('message', ''))[:500]}
-            key = ev.get('check')
-            if key in self.checks:
-                self.set_check(key, False, ev.get('message', ''))
-        elif kind in ('size_start', 'size'):
-            batch = self.size_batch or []
-            idx = ev.get('index')
-            if not isinstance(idx, int) or not 0 <= idx < len(batch):
-                return
-            item = batch[idx]
-            if kind == 'size_start':
-                item['size_state'] = 'running'
-            else:
-                size = ev.get('bytes')
-                ok = isinstance(size, int) and not isinstance(size, bool) and 0 < size < 2 ** 50
-                item.update(expected_size=size if ok else None, size_state='ok' if ok else 'unknown')
-                if self.size_job is not None:
-                    self.size_job['done'] = idx + 1
-
     def start_worker(self, mode):
-        """Startet einen Vorgang, falls keiner laeuft (Aufrufer haelt self.lock)."""
+        """Startet einen Vorgang, falls keiner laeuft."""
         if self.worker is not None:
             return False
         self.mode, self.stop_requested = mode, False
@@ -160,6 +242,30 @@ class State:
         self.worker = Worker(self, mode)
         self.worker.start()
         return True
+
+    def halt_locked(self, *, sizes=True):
+        """Stopp: Hauptvorgang (und mit sizes auch die Groessenabfrage) anhalten und ihre Prozessbaeume beenden."""
+        if self.worker is not None:
+            self.stop_requested = True
+        if self.tree is not None:
+            self.tree.kill()
+        if sizes:
+            if self.size_worker is not None:
+                self.size_stop = True
+            if self.size_tree is not None:
+                self.size_tree.kill()
+
+    def record_run_locked(self, code):
+        """Nach einem grab.py-Lauf: Exitcode 0 = vollstaendige Pruefung bestanden; Ampeln speichern."""
+        if code == 0:
+            self.last_check = now()
+        self.save_checks()
+
+    def current_error_locked(self):
+        return (self.current or {}).get('error') or {}
+
+    def banner_level_locked(self):
+        return (self.banner or {}).get('level')
 
     # ---- Pruefergebnisse
     def load_checks(self):
@@ -204,68 +310,122 @@ class State:
         else:
             cur.update(eta_seconds=None, eta_at=None)
 
-    # ---- Ereignisse aus grab.py
-    def handle_event(self, ev):
-        kind = ev.get('type')
+    # ---- Ereignisse aus grab.py (Hauptvorgang)
+    def _ev_check(self, ev):
+        self.set_check(ev.get('key'), ev.get('ok'), ev.get('detail'))
+        if self.current is not None and ev.get('key') in CHECK_KEYS:
+            self.current['check_step'] = ev.get('key')
+
+    def _ev_phase(self, ev):
         cur = self.current
-        if kind == 'check':
-            self.set_check(ev.get('key'), ev.get('ok'), ev.get('detail'))
-            if cur is not None and ev.get('key') in CHECK_KEYS:
-                cur['check_step'] = ev.get('key')   # zuletzt abgeschlossener Pruefpunkt
-        elif kind == 'phase' and cur is not None:
-            cur['phase'] = ev.get('phase')
-            if ev.get('phase') in ('resolve', 'download', 'remux', 'verify'):
-                cur.update(percent=None, speed=None, eta=None, total=None)
-            if ev.get('phase') == 'download':
-                cur['download_started'] = now()   # fuer die Durchschnittsgeschwindigkeit dieses Videos
-        elif kind == 'progress' and cur is not None:
-            if ev.get('phase') == 'download':
-                cur.update(percent=ev.get('percent'), speed=ev.get('speed'), eta=ev.get('eta'), total=ev.get('total'))
-        elif kind == 'title' and cur is not None:
-            cur['title'] = ev.get('name')
-        elif kind == 'done' and cur is not None:
-            cur['file'] = ev.get('file')
-            cur['size'] = ev.get('size')
-        elif kind == 'checked':
-            pass
-        elif kind == 'redirect_host':
-            host = ev.get('host')
-            if isinstance(host, str) and g.HOST_RE.fullmatch(host) and len(self.redirect_hosts) < 100:
-                self.redirect_hosts.add(host)
-        elif kind in ('preview_start', 'preview'):
-            batch = self.preview_batch or []
-            idx = ev.get('index')
-            if not isinstance(idx, int) or not 0 <= idx < len(batch):
-                return
-            item = batch[idx]
-            if kind == 'preview_start':
-                item['title_state'] = 'running'
-                if cur is not None:
-                    cur.setdefault('preview_started', now())
-                    cur['title'] = f'Titel {idx + 1} von {len(batch)} wird gesucht'
-                    cur['percent'] = idx / len(batch) * 100
-            else:
-                if ev.get('ok'):
-                    item.update(title=ev.get('name'), title_state='ok')
-                else:
-                    item.update(title_state='failed', status='failed', finished=now(),
-                                error={'ident': str(ev.get('ident', '')), 'code': ev.get('code'),
-                                       'message': g.safe_text(ev.get('message', ''))[:500]})
-                if cur is not None:
-                    cur['percent'] = (idx + 1) / len(batch) * 100
-                    self.preview_eta(cur, len(batch))
-        elif kind == 'error':
-            ident = str(ev.get('ident', ''))
-            key = ev.get('check')   # betroffene Ampel, von grab.py mitgeschickt
-            if key in self.checks and (self.checks.get(key) is None or self.checks[key].get('ok') is not False or self.checks[key].get('stale')):
-                self.set_check(key, False, ev.get('message', ident))
-            if cur is not None:
-                cur['error'] = {'ident': ident, 'code': ev.get('code'), 'message': g.safe_text(ev.get('message', ''))[:500]}
+        if cur is None:
+            return
+        cur['phase'] = ev.get('phase')
+        if ev.get('phase') in RESET_PROGRESS_PHASES:
+            cur.update(percent=None, speed=None, eta=None, total=None)
+        if ev.get('phase') == common.PHASE_DOWNLOAD:
+            cur['download_started'] = now()
+
+    def _ev_progress(self, ev):
+        if self.current is not None and ev.get('phase') == common.PHASE_DOWNLOAD:
+            self.current.update(percent=ev.get('percent'), speed=ev.get('speed'), eta=ev.get('eta'), total=ev.get('total'))
+
+    def _ev_title(self, ev):
+        if self.current is not None:
+            self.current['title'] = ev.get('name')
+
+    def _ev_done(self, ev):
+        if self.current is not None:
+            self.current['file'] = ev.get('file')
+            self.current['size'] = ev.get('size')
+
+    def _ev_redirect_host(self, ev):
+        host = ev.get('host')
+        if isinstance(host, str) and g.HOST_RE.fullmatch(host) and len(self.redirect_hosts) < 100:
+            self.redirect_hosts.add(host)
+
+    def _ev_preview_start(self, ev):
+        job = self.preview_batch
+        idx, item = job.at(ev) if job is not None else (None, None)
+        if item is None:
+            return
+        item['title_state'] = 'running'
+        cur = self.current
+        if cur is not None:
+            cur.setdefault('preview_started', now())
+            cur['title'] = f'Titel {idx + 1} von {len(job)} wird gesucht'
+            cur['percent'] = idx / len(job) * 100
+
+    def _ev_preview(self, ev):
+        job = self.preview_batch
+        idx, item = job.at(ev) if job is not None else (None, None)
+        if item is None:
+            return
+        if ev.get('ok'):
+            item.update(title=ev.get('name'), title_state='ok')
+        else:
+            item.update(title_state='failed', status='failed', finished=now(), error=make_error(ev))
+        cur = self.current
+        if cur is not None:
+            cur['percent'] = (idx + 1) / len(job) * 100
+            self.preview_eta(cur, len(job))
+
+    def _ev_error(self, ev):
+        ident = str(ev.get('ident', ''))
+        key = ev.get('check')   # betroffene Ampel, von grab.py mitgeschickt
+        # Eine frische rote Ampel behaelt ihren ersten Befund.
+        if key in self.checks and (self.checks.get(key) is None or self.checks[key].get('ok') is not False or self.checks[key].get('stale')):
+            self.set_check(key, False, ev.get('message', ident))
+        if self.current is not None:
+            self.current['error'] = make_error(ev)
+
+    _MAIN_EVENTS = {'check': _ev_check, 'phase': _ev_phase, 'progress': _ev_progress, 'title': _ev_title,
+                    'done': _ev_done, 'redirect_host': _ev_redirect_host, 'preview_start': _ev_preview_start,
+                    'preview': _ev_preview, 'error': _ev_error}
+
+    def handle_event(self, ev):
+        """Ereignis des Hauptvorgangs; IGNORED_EVENTS und unbekannte Arten bleiben ohne Wirkung."""
+        fn = self._MAIN_EVENTS.get(ev.get('type'))
+        if fn is not None:
+            fn(self, ev)
+
+    # ---- Ereignisse der Groessenabfrage: nur Pruefampeln, Groessen und Fehlertext - nie die Download-Anzeige
+    def _size_ev_error(self, ev):
+        if self.size_batch is not None:
+            self.size_batch.error = make_error(ev)
+        key = ev.get('check')
+        if key in self.checks:
+            self.set_check(key, False, ev.get('message', ''))
+
+    def _size_ev_size_start(self, ev):
+        item = self.size_batch.at(ev)[1] if self.size_batch is not None else None
+        if item is not None:
+            item['size_state'] = 'running'
+
+    def _size_ev_size(self, ev):
+        idx, item = self.size_batch.at(ev) if self.size_batch is not None else (None, None)
+        if item is None:
+            return
+        size = ev.get('bytes')
+        ok = isinstance(size, int) and not isinstance(size, bool) and 0 < size < 2 ** 50
+        item.update(expected_size=size if ok else None, size_state='ok' if ok else 'unknown')
+        if self.size_job is not None:
+            self.size_job['done'] = idx + 1
+
+    _SIZE_EVENTS = {'check': lambda self, ev: self.set_check(ev.get('key'), ev.get('ok'), ev.get('detail')),
+                    'redirect_host': _ev_redirect_host, 'error': _size_ev_error,
+                    'size_start': _size_ev_size_start, 'size': _size_ev_size}
+
+    def handle_size_event(self, ev):
+        """Ereignis der Groessenabfrage; alles andere (auch phase/progress) bleibt ohne Wirkung."""
+        fn = self._SIZE_EVENTS.get(ev.get('type'))
+        if fn is not None:
+            fn(self, ev)
 
     def snapshot(self):
         history = []
         try:
-            files = [p for p in (self.storage / 'finished').iterdir() if p.is_file() and not p.is_symlink()]
+            files = [p for p in (self.storage / g.Store.OUTPUT_DIR).iterdir() if p.is_file() and not p.is_symlink()]
             files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
             for p in files[:30]:
                 st = p.stat()
@@ -279,13 +439,65 @@ class State:
                    'good' if all_ok and fresh else
                    'stale' if all_ok else
                    'unknown')
+        current = None
+        if self.current:   # preview_marks braucht nur der Server (Restzeit)
+            current = {k: v for k, v in self.current.items() if k != 'preview_marks'}
         return {'checks': self.checks, 'overall': overall, 'last_check': self.last_check,
-                'queue': [dict(item) for item in self.queue], 'current': dict(self.current) if self.current else None,
+                'queue': [dict(item, display=display_name(item)) for item in self.queue], 'current': current,
                 'mode': self.mode, 'banner': self.banner, 'start_pending': self.start_after_preview,
                 'sizes_enabled': self.sizes_enabled, 'size_job': dict(self.size_job) if self.size_job else None, 'log': list(self.log)[-120:], 'history': history,
-                'storage_finished': str(self.storage / 'finished'), 'browser': self.config.get('ui_browser', 'auto'),
+                'storage_finished': str(self.storage / g.Store.OUTPUT_DIR), 'browser': self.config.get('ui_browser', g.BROWSER_AUTO),
+                'meta': UI_META,
                 # Mullvad meldet Seiten absichtlich UTC (Fingerprint-Schutz): Ortszeit-Versatz kommt vom Server.
                 'tz_offset': time.localtime().tm_gmtoff, 'server_time': now()}
+
+
+def run_grab(s, extra, on_event, set_tree, stdin_text=None):
+    """Startet grab.py --events und wartet auf das Ende. Rueckgabe: Exitcode.
+
+    Ereignisse gehen (unter s.lock) an on_event, der Prozessbaum (fuer Stopp) an set_tree, am Ende set_tree(None).
+    """
+    argv = [sys.executable, '-I', str(APP / 'grab.py'), '--events', '--config', str(s.config_path)] + extra
+    env = {k: v for k, v in os.environ.items()
+           if not k.upper().startswith(('PYTHON', 'YTDLP')) and k.upper() not in
+           ('HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY', 'SSLKEYLOGFILE', g.REDIRECT_HOSTS_ENV)}
+    with s.lock:
+        if s.redirect_hosts:
+            # Umgebungsvariable statt Kommandozeile: taucht nicht in Prozesslisten/Protokollen auf.
+            env[g.REDIRECT_HOSTS_ENV] = ','.join(sorted(s.redirect_hosts))
+    proc = subprocess.Popen(argv, stdin=subprocess.PIPE if stdin_text is not None else subprocess.DEVNULL,
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            cwd=str(APP), env=env, **sc.popen_kwargs())
+    tree = sc.ProcessTree(proc)
+    with s.lock:
+        set_tree(tree)
+    if stdin_text is not None:
+        # Links ueber die Standardeingabe: tauchen nicht in der Prozessliste auf.
+        try:
+            proc.stdin.write(stdin_text.encode('utf-8'))
+        except OSError:
+            pass
+        finally:
+            proc.stdin.close()
+    try:
+        for raw in iter(proc.stdout.readline, b''):
+            line = raw.decode('utf-8', errors='replace').rstrip('\r\n')
+            with s.lock:
+                if line.startswith(g.EVENT_PREFIX):
+                    try:
+                        ev = json.loads(line[len(g.EVENT_PREFIX):])
+                        if isinstance(ev, dict):
+                            on_event(ev)
+                    except ValueError:
+                        pass
+                elif line.strip() and not line.startswith('[download] ') or line.startswith('[download] Destination'):
+                    s.log.append({'time': now(), 'text': g.safe_text(line)[:400]})
+        return proc.wait()
+    finally:
+        with s.lock:
+            set_tree(None)
+        tree.close()
+        proc.stdout.close()
 
 
 class Worker(threading.Thread):
@@ -295,157 +507,110 @@ class Worker(threading.Thread):
         super().__init__(daemon=True)
         self.s, self.mode = state, mode
 
-    def run_grab(self, extra, stdin_text=None, handler=None, tree_attr='tree'):
-        """Startet grab.py; Ereignisse gehen an handler (Vorgabe: Hauptvorgang), der Prozessbaum an s.<tree_attr>."""
-        s = self.s
-        handler = handler or s.handle_event
-        argv = [sys.executable, '-I', str(APP / 'grab.py'), '--events', '--config', str(s.config_path)] + extra
-        env = {k: v for k, v in os.environ.items()
-               if not k.upper().startswith(('PYTHON', 'YTDLP')) and k.upper() not in
-               ('HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY', 'SSLKEYLOGFILE', g.REDIRECT_HOSTS_ENV)}
-        with s.lock:
-            if s.redirect_hosts:
-                # Umgebungsvariable statt Kommandozeile: taucht nicht in Prozesslisten/Protokollen auf.
-                env[g.REDIRECT_HOSTS_ENV] = ','.join(sorted(s.redirect_hosts))
-        proc = subprocess.Popen(argv, stdin=subprocess.PIPE if stdin_text is not None else subprocess.DEVNULL,
-                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                cwd=str(APP), env=env, **sc.popen_kwargs())
-        tree = sc.ProcessTree(proc)
-        with s.lock:
-            setattr(s, tree_attr, tree)
-        if stdin_text is not None:
-            # Links ueber die Standardeingabe: tauchen nicht in der Prozessliste auf.
-            try:
-                proc.stdin.write(stdin_text.encode('utf-8'))
-            except OSError:
-                pass
-            finally:
-                proc.stdin.close()
-        try:
-            for raw in iter(proc.stdout.readline, b''):
-                line = raw.decode('utf-8', errors='replace').rstrip('\r\n')
-                with s.lock:
-                    if line.startswith(g.EVENT_PREFIX):
-                        try:
-                            ev = json.loads(line[len(g.EVENT_PREFIX):])
-                            if isinstance(ev, dict):
-                                handler(ev)
-                        except ValueError:
-                            pass
-                    elif line.strip() and not line.startswith('[download] ') or line.startswith('[download] Destination'):
-                        s.log.append({'time': now(), 'text': g.safe_text(line)[:400]})
-            return proc.wait()
-        finally:
-            with s.lock:
-                setattr(s, tree_attr, None)
-            tree.close()
-            proc.stdout.close()
+    def _set_tree(self, tree):
+        self.s.tree = tree
+
+    def grab(self, extra, stdin_text=None):
+        return run_grab(self.s, extra, self.s.handle_event, self._set_tree, stdin_text)
 
     def find_titles(self):
         """Titelsuche fuer alle wartenden Eintraege ohne Titel. Rueckgabe: Exitcode (0 = nichts zu tun/ok)."""
         s = self.s
         with s.lock:
-            batch = s.pending_titles()
-            if not batch:
+            pending = s.pending_titles()
+            if not pending:
                 return 0
-            for item in batch:
-                item['title_state'] = 'queued'
-            s.preview_batch = batch
-            s.current = {'id': 'preview', 'phase': 'preview', 'title': f'Titel werden gesucht (0 von {len(batch)})',
+            job = s.preview_batch = BatchJob(pending, 'title_state')
+            s.current = {'id': 'preview', 'phase': common.PHASE_PREVIEW, 'title': f'Titel werden gesucht (0 von {len(job)})',
                          'percent': 0, 'started': now()}
-            urls = '\n'.join(x['url'] for x in batch) + '\n'
-        code = self.run_grab(['--preview'], stdin_text=urls)
+            urls = job.stdin_text()
+        code = self.grab(['--preview'], stdin_text=urls)
         with s.lock:
-            for item in batch:
-                if item.get('title_state') in ('queued', 'running'):
-                    item['title_state'] = 'pending'   # nicht fertig geworden: spaeter erneut
+            job.release('pending')
             s.preview_batch = None
-            found = sum(1 for x in batch if x.get('title_state') == 'ok')
-            bad = sum(1 for x in batch if x.get('title_state') == 'failed')
+            found, bad = job.count('ok'), job.count('failed')
             if code == 0:
-                s.last_check = now()
-                text = f'Titel gefunden: {found} von {len(batch)}.' + (f' {bad} Link(s) nicht aufloesbar.' if bad else '')
-                s.banner = {'level': 'warn' if bad else 'good', 'text': text}
+                text = f'Titel gefunden: {found} von {len(job)}.' + (f' {bad} Link(s) nicht aufloesbar.' if bad else '')
+                s.banner = banner('warn' if bad else 'good', text)
             elif s.stop_requested:
-                s.banner = {'level': 'warn', 'text': 'Titelsuche angehalten.'}
+                s.banner = banner('warn', 'Titelsuche angehalten.')
             else:
-                err = (s.current or {}).get('error') or {}
                 prefix = 'Sicherheitsabbruch: ' if code == 2 else 'Titelsuche fehlgeschlagen: '
-                s.banner = {'level': 'bad', 'text': prefix + (err.get('message') or f'Exitcode {code}')}
-            s.save_checks()
+                s.banner = banner('bad', prefix + (s.current_error_locked().get('message') or f'Exitcode {code}'))
+            s.record_run_locked(code)
             if code == 0:
-                s.start_sizes()   # Titel da: angeforderte Groessen sofort, parallel zu allem Weiteren
+                s.schedule_locked(sizes=True)   # Titel da: angeforderte Groessen sofort, parallel zu allem Weiteren
         return code
+
+    def check(self):
+        s = self.s
+        with s.lock:
+            s.current = {'id': 'check', 'phase': common.PHASE_CHECKS, 'title': 'Sicherheitspruefung', 'started': now()}
+        code = self.grab(['--check-only'])
+        with s.lock:
+            if code == 0:
+                s.banner = banner('good', 'Alle Sicherheitspruefungen bestanden.')
+            elif not s.stop_requested:
+                s.banner = banner('bad', s.current_error_locked().get('message') or f'Pruefung fehlgeschlagen (Exitcode {code}).')
+            s.record_run_locked(code)
+
+    def download_queue(self):
+        s = self.s
+        while True:
+            with s.lock:
+                if s.stop_requested:
+                    break
+                item = next((x for x in s.queue if x['status'] == 'waiting'), None)
+                if item is None:
+                    break
+                item.update(status='running', started=now(), error=None)
+                name = display_name(item)   # Dateiname = eigener Name oder gefundener Titel
+                s.current = {'id': item['id'], 'phase': common.PHASE_CHECKS, 'title': name,
+                             'percent': None, 'speed': None, 'eta': None, 'total': None, 'started': now()}
+                url = item['url']
+            code = self.grab([url] + ([name] if name else []))
+            with s.lock:
+                cur = s.current or {}
+                item['finished'] = now()
+                item['title'] = cur.get('title') or item.get('title')
+                if code == 0:
+                    item.update(status='done', file=cur.get('file'), size=cur.get('size'))
+                elif s.stop_requested:
+                    item['status'] = 'stopped'
+                else:
+                    item['status'] = 'failed'
+                    item['error'] = cur.get('error') or {'ident': 'EXIT', 'code': code, 'message': f'Exitcode {code}'}
+                s.record_run_locked(code)
+                if code == 2:
+                    s.banner = security_banner(item['error']['message'])
+                    break
+        with s.lock:
+            if s.stop_requested and s.banner_level_locked() != 'bad':   # Sicherheitsabbruch bleibt sichtbar
+                s.banner = banner('warn', 'Angehalten.')
+            elif s.banner_level_locked() != 'bad':
+                done = sum(1 for x in s.queue if x['status'] == 'done')
+                s.banner = banner('good', f'Warteschlange abgearbeitet ({done} fertig).')
 
     def run(self):
         s = self.s
         try:
             if self.mode == 'preview':
                 self.find_titles()
-                return
-            if self.mode == 'download':
+            elif self.mode == 'check':
+                self.check()
+            elif self.mode == 'download':
                 # Erst alle Titel, dann laden - wie die Vorschau der Kommandozeile.
-                if self.find_titles() != 0:
-                    return
-                with s.lock:
-                    s.banner = None
-                    s.start_sizes()   # angeforderte Groessen laufen parallel zum Download
-            if self.mode == 'check':
-                with s.lock:
-                    s.current = {'id': 'check', 'phase': 'checks', 'title': 'Sicherheitspruefung', 'started': now()}
-                code = self.run_grab(['--check-only'])
-                with s.lock:
-                    if code == 0:
-                        s.last_check = now()
-                        s.banner = {'level': 'good', 'text': 'Alle Sicherheitspruefungen bestanden.'}
-                    elif not s.stop_requested:
-                        err = (s.current or {}).get('error') or {}
-                        s.banner = {'level': 'bad', 'text': err.get('message') or f'Pruefung fehlgeschlagen (Exitcode {code}).'}
-                    s.save_checks()
-                return
-            while True:
-                with s.lock:
-                    if s.stop_requested:
-                        break
-                    item = next((x for x in s.queue if x['status'] == 'waiting'), None)
-                    if item is None:
-                        break
-                    item.update(status='running', started=now(), error=None)
-                    s.current = {'id': item['id'], 'phase': 'checks', 'title': item.get('name') or item.get('title'),
-                                 'percent': None, 'speed': None, 'eta': None, 'total': None, 'started': now()}
-                    # Dateiname = eigener Name oder der in der Vorschau gefundene Titel (wie die Kommandozeile).
-                    url, name = item['url'], item.get('name') or item.get('title')
-                code = self.run_grab([url] + ([name] if name else []))
-                with s.lock:
-                    cur = s.current or {}
-                    item['finished'] = now()
-                    item['title'] = cur.get('title') or item.get('title')
-                    if code == 0:
-                        item.update(status='done', file=cur.get('file'), size=cur.get('size'))
-                        s.last_check = now()
-                    elif s.stop_requested:
-                        item['status'] = 'stopped'
-                    else:
-                        item['status'] = 'failed'
-                        item['error'] = cur.get('error') or {'ident': 'EXIT', 'code': code, 'message': f'Exitcode {code}'}
-                    s.save_checks()
-                    if code == 2:
-                        # Wie in der Kommandozeile: Sicherheitsabbruch stoppt die ganze Warteschlange.
-                        s.banner = {'level': 'bad', 'text': 'Sicherheitsabbruch: ' + item['error']['message'] +
-                                    ' Die Warteschlange wurde angehalten.'}
-                        break
-            with s.lock:
-                if s.stop_requested and (s.banner or {}).get('level') != 'bad':   # Sicherheitsabbruch bleibt sichtbar
-                    s.banner = {'level': 'warn', 'text': 'Angehalten.'}
-                elif not s.banner or s.banner.get('level') != 'bad':
-                    done = sum(1 for x in s.queue if x['status'] == 'done')
-                    s.banner = {'level': 'good', 'text': f'Warteschlange abgearbeitet ({done} fertig).'}
+                if self.find_titles() == 0:
+                    with s.lock:
+                        s.banner = None   # Titel-Meldung der Vorstufe gilt nicht fuer den Download
+                        s.schedule_locked(sizes=True)   # angeforderte Groessen laufen parallel zum Download
+                    self.download_queue()
         except Exception as exc:  # nie still scheitern
             with s.lock:
-                s.banner = {'level': 'bad', 'text': f'Interner Fehler der Oberflaeche ({type(exc).__name__}).'}
+                s.banner = internal_error_banner('Oberflaeche', exc)
         finally:
             with s.lock:
-                halted = s.stop_requested or (s.banner or {}).get('level') == 'bad'
+                halted = s.stop_requested or s.banner_level_locked() == 'bad'
                 s.current = None
                 s.mode = 'idle'
                 s.stop_requested = False
@@ -453,58 +618,49 @@ class Worker(threading.Thread):
                 s.preview_batch = None
                 start_next = s.start_after_preview and self.mode == 'preview'
                 s.start_after_preview = False
-                if not halted and start_next and any(x['status'] == 'waiting' for x in s.queue):
-                    s.start_worker('download')   # "Start" wurde waehrend der Titelsuche gedrueckt
-                elif not halted and s.pending_titles():
-                    # Waehrend eines Downloads hinzugefuegte Links bekommen danach ihre Titel.
-                    s.start_worker('preview')
                 if not halted:
-                    s.start_sizes()
+                    # "Start" waehrend der Titelsuche: jetzt laden. Sonst bekommen waehrend eines Downloads
+                    # hinzugefuegte Links danach ihre Titel.
+                    s.schedule_locked(download=start_next and any(x['status'] == 'waiting' for x in s.queue),
+                                      titles=True, sizes=True)
 
 
-class SizeWorker(Worker):
+class SizeWorker(threading.Thread):
     """Dateigroessen der wartenden Eintraege - eigener grab.py-Prozess, laeuft parallel zum Hauptvorgang.
     Eigene Ereignisverarbeitung (beruehrt die Download-Anzeige nicht), eigener Prozessbaum (Stopp)."""
 
     def __init__(self, state):
-        super().__init__(state, 'sizes')
+        super().__init__(daemon=True)
+        self.s = state
+
+    def _set_tree(self, tree):
+        self.s.size_tree = tree
 
     def run(self):
         s = self.s
         try:
             while True:
                 with s.lock:
-                    batch = s.pending_sizes()
-                    if not batch or s.size_stop:
+                    pending = s.pending_sizes()
+                    if not pending or s.size_stop:
                         break
-                    for item in batch:
-                        item['size_state'] = 'queued'
-                    s.size_batch = batch
-                    s.size_job = {'done': 0, 'total': len(batch)}
-                    s.size_error = None
-                    urls = '\n'.join(x['url'] for x in batch) + '\n'
-                code = self.run_grab(['--sizes'], stdin_text=urls, handler=s.handle_size_event, tree_attr='size_tree')
+                    job = s.size_batch = BatchJob(pending, 'size_state')
+                    s.size_job = {'done': 0, 'total': len(job)}
+                    urls = job.stdin_text()
+                code = run_grab(s, ['--sizes'], s.handle_size_event, self._set_tree, stdin_text=urls)
                 with s.lock:
-                    for item in batch:
-                        if item.get('size_state') in ('queued', 'running'):
-                            # angehalten: spaeter erneut; Fehler: nicht endlos wiederholen
-                            item['size_state'] = None if s.size_stop else 'unknown'
+                    job.release(None if s.size_stop else 'unknown')   # angehalten: spaeter erneut; Fehler: nicht endlos wiederholen
                     s.size_batch = None
                     if code == 2 and not s.size_stop:
                         # Sicherheitsabbruch in der Groessenabfrage gilt fuer alles: auch den Download anhalten.
-                        msg = (s.size_error or {}).get('message') or f'Exitcode {code}'
-                        s.banner = {'level': 'bad', 'text': 'Sicherheitsabbruch (Groessenabfrage): ' + msg +
-                                    ' Die Warteschlange wurde angehalten.'}
-                        if s.worker is not None:
-                            s.stop_requested = True
-                            if s.tree is not None:
-                                s.tree.kill()
+                        s.banner = security_banner((job.error or {}).get('message') or f'Exitcode {code}', ' (Groessenabfrage)')
+                        s.halt_locked(sizes=False)
                     s.save_checks()
                     if code != 0:
                         break
         except Exception as exc:  # nie still scheitern
             with s.lock:
-                s.banner = {'level': 'bad', 'text': f'Interner Fehler der Groessenabfrage ({type(exc).__name__}).'}
+                s.banner = internal_error_banner('Groessenabfrage', exc)
         finally:
             with s.lock:
                 s.size_worker = None
@@ -513,7 +669,7 @@ class SizeWorker(Worker):
                 s.size_stop = False
 
 
-def make_handler(state, token, port_holder):
+def make_handler(state, token, debug=False):
     class Handler(http.server.BaseHTTPRequestHandler):
         server_version = 'Quite Safe Grab'
         sys_version = ''
@@ -522,14 +678,14 @@ def make_handler(state, token, port_holder):
             pass
 
         def log_request(self, code='-', size='-'):
-            if DEBUG:   # nur Methode, Pfad ohne Query/Fragment und Status - nie Inhalte oder Schluessel
+            if debug:   # nur Methode, Pfad ohne Query/Fragment und Status - nie Inhalte oder Schluessel
                 path = urllib.parse.urlsplit(self.path).path
                 print(f'[debug] {time.strftime("%H:%M:%S")} {self.command} {path} -> {code} '
                       f'(Token {"ja" if self.headers.get("X-QSGrab-Token") else "nein"}, '
                       f'Origin {self.headers.get("Origin") or "-"}, Host {self.headers.get("Host")})', flush=True)
 
         def origin_ok(self):
-            expected = f'127.0.0.1:{port_holder[0]}'
+            expected = f'127.0.0.1:{self.server.server_address[1]}'
             if self.headers.get('Host') != expected:
                 return False
             origin = self.headers.get('Origin')
@@ -557,7 +713,8 @@ def make_handler(state, token, port_holder):
             got = self.headers.get('X-QSGrab-Token', '')
             ok = hmac.compare_digest(got.encode('utf-8', 'replace'), token.encode('ascii'))
             if ok:
-                state.page_alive = True
+                with state.lock:
+                    state.page_alive = True
             return ok
 
         def do_GET(self):
@@ -566,8 +723,9 @@ def make_handler(state, token, port_holder):
             path = urllib.parse.urlsplit(self.path).path
             if path in STATIC:
                 name, ctype = STATIC[path]
-                try:
+                with state.lock:
                     refresh = path == '/' and state.reload_until_alive and not state.page_alive
+                try:
                     return self.send(200, (APP / 'ui' / name).read_bytes(), ctype, refresh=refresh)
                 except OSError:
                     return self.send(404, {'error': 'missing'})
@@ -608,6 +766,7 @@ def make_handler(state, token, port_holder):
             return self.send(200, result)
 
         def route(self, path, body):
+            """Eine API-Route (unter state.lock). Vorgaenge startet nur state.schedule_locked bzw. start_worker('check')."""
             s = state
             if path == '/api/queue/add':
                 urls = body.get('urls')
@@ -634,14 +793,13 @@ def make_handler(state, token, port_holder):
                                     'added': now(), 'error': None, 'title': None, 'title_state': 'pending'})
                     added += 1
                 if added:
-                    s.start_worker('preview')   # Titel sofort suchen (laeuft gerade etwas, danach)
+                    s.schedule_locked(titles=True)   # Titel sofort suchen (laeuft gerade etwas, danach)
                 return {'added': added, 'invalid': bad}
             if path == '/api/queue/remove':
                 ident = body.get('id')
                 s.queue[:] = [x for x in s.queue if not (x['id'] == ident and x['status'] != 'running')]
                 return {'ok': True}
             if path == '/api/queue/move':
-                # Reihenfolge aendern: Eintrag 'id' vor Eintrag 'before' setzen (None = ans Ende).
                 ident, before = body.get('id'), body.get('before')
                 item = next((x for x in s.queue if x['id'] == ident), None)
                 if item is None or item['status'] == 'running':
@@ -652,17 +810,13 @@ def make_handler(state, token, port_holder):
                 pos = len(s.queue) if before is None else next(i for i, x in enumerate(s.queue) if x['id'] == before)
                 s.queue.insert(pos, item)
                 return {'ok': True}
-            if path == '/api/queue/clear':
-                s.queue[:] = [x for x in s.queue if x['status'] in ('waiting', 'running')]
-                return {'ok': True}
             if path == '/api/queue/retry':
                 for x in s.queue:
                     if x['id'] == body.get('id') and x['status'] in ('failed', 'stopped'):
                         x.update(status='waiting', error=None)
                         if x.get('title_state') != 'ok':
                             x['title_state'] = 'pending'
-                if s.pending_titles():
-                    s.start_worker('preview')
+                s.schedule_locked(titles=True)
                 return {'ok': True}
             if path == '/api/start':
                 if not any(x['status'] == 'waiting' for x in s.queue):
@@ -672,39 +826,28 @@ def make_handler(state, token, port_holder):
                         s.start_after_preview = True   # direkt nach der Titelsuche loslegen
                         return {'ok': True, 'deferred': True}
                     raise ValueError('Es laeuft bereits ein Vorgang.')
-                s.start_worker('download')
+                s.schedule_locked(download=True)
                 return {'ok': True}
             if path == '/api/sizes':
                 # Ab jetzt Groessen fuer alle wartenden Links mit Titel - sofort und parallel zum Download.
                 # Links ohne Titel folgen direkt nach ihrer Titelsuche.
                 s.sizes_enabled = True
-                if s.worker is None and s.pending_titles():
-                    s.start_worker('preview')
-                s.start_sizes()
+                s.schedule_locked(titles=True, sizes=True)
                 return {'ok': True}
             if path == '/api/check':
                 if not s.start_worker('check'):
                     raise ValueError('Es laeuft bereits ein Vorgang.')
                 return {'ok': True}
             if path == '/api/stop':
-                if s.worker is not None:
-                    s.stop_requested = True
-                    if s.tree is not None:
-                        s.tree.kill()
-                if s.size_worker is not None:
-                    s.size_stop = True
-                    if s.size_tree is not None:
-                        s.size_tree.kill()
+                s.halt_locked()
                 return {'ok': True}
             if path == '/api/open-folder':
-                folder = s.storage / 'finished'
+                folder = s.storage / g.Store.OUTPUT_DIR
                 if folder.is_dir() and not sc.is_reparse_or_link(folder):
                     os.startfile(str(folder))   # fester Pfad aus der Konfiguration, keine Eingabe
                 return {'ok': True}
             if path == '/api/dismiss':
                 s.banner = None
-                return {'ok': True}
-            if path == '/api/ping':
                 return {'ok': True}
             return None
 
@@ -729,6 +872,7 @@ def _app_path(exe):
 
 
 def find_mullvad():
+    # Gleiche Orte (die ersten beiden) prueft setup.ps1 nur fuer seinen Hinweistext; massgeblich ist diese Suche.
     env = os.environ
     for p in (Path(env.get('LOCALAPPDATA', '')) / 'Mullvad' / 'MullvadBrowser' / 'Release' / 'mullvadbrowser.exe',
               Path(env.get('ProgramFiles', r'C:\Program Files')) / 'Mullvad Browser' / 'Browser' / 'mullvadbrowser.exe',
@@ -747,24 +891,40 @@ def find_edge():
     return _app_path('msedge.exe')
 
 
+@dataclasses.dataclass(frozen=True)
+class Launch:
+    """Browserstart: Art (g.BROWSER_MULLVAD / g.BROWSER_EDGE), Anzeigename, Kommandozeile, Profilordner."""
+    kind: str
+    name: str
+    argv: list
+    profile: Path
+
+
+class NoBrowser(Exception):
+    """Kein passender Browser; die Meldung ist der Hinweis fuer den Nutzer."""
+
+
 def browser_command(choice, url, profile_root, finders=(find_mullvad, find_edge)):
-    """(Name, argv) fuer den Browserstart oder (None, Hinweis) wenn nicht moeglich."""
+    """Launch fuer den Browserstart; NoBrowser mit Hinweis, wenn nicht moeglich."""
     find_mb, find_ed = finders
-    if choice in ('auto', 'mullvad'):
+    if choice in (g.BROWSER_AUTO, g.BROWSER_MULLVAD):
         exe = find_mb()
         if exe:
             profile = profile_root / 'mullvad'
-            return 'Mullvad Browser', [exe, '-no-remote', '-profile', str(profile), '-new-window', url]
-        if choice == 'mullvad':
-            return None, ('Mullvad Browser nicht gefunden (ui_browser = "mullvad"). Installieren von '
-                          'https://mullvad.net/browser oder in config.toml ui_browser = "auto" setzen.')
+            return Launch(g.BROWSER_MULLVAD, 'Mullvad Browser',
+                          [exe, '-no-remote', '-profile', str(profile), '-new-window', url], profile)
+        if choice == g.BROWSER_MULLVAD:
+            raise NoBrowser('Mullvad Browser nicht gefunden (ui_browser = "mullvad"). Installieren von '
+                            'https://mullvad.net/browser oder in config.toml ui_browser = "auto" setzen.')
     exe = find_ed()
     if exe:
         profile = profile_root / 'edge'
-        return 'Microsoft Edge (eigenes Profil)', [exe, f'--user-data-dir={profile}', f'--app={url}', '--no-first-run',
-                                                   '--no-default-browser-check', '--disable-sync', '--disable-extensions',
-                                                   '--disable-background-networking', '--disable-features=Translate,AutofillServerCommunication']
-    return None, 'Weder Mullvad Browser noch Microsoft Edge gefunden.'
+        return Launch(g.BROWSER_EDGE, 'Microsoft Edge (eigenes Profil)',
+                      [exe, f'--user-data-dir={profile}', f'--app={url}', '--no-first-run',
+                       '--no-default-browser-check', '--disable-sync', '--disable-extensions',
+                       '--disable-background-networking', '--disable-features=Translate,AutofillServerCommunication'],
+                      profile)
+    raise NoBrowser('Weder Mullvad Browser noch Microsoft Edge gefunden.')
 
 
 def reset_profile(path):
@@ -773,17 +933,7 @@ def reset_profile(path):
 
 
 # Sperrdatei, die der Browser exklusiv offen haelt, solange er mit diesem Profil laeuft.
-PROFILE_LOCK = {'mullvad': 'parent.lock', 'edge': 'lockfile'}
-
-
-def profile_of(cmd):
-    """(Art, Profilordner) aus einer Startzeile von browser_command."""
-    if '-profile' in cmd:
-        return 'mullvad', Path(cmd[cmd.index('-profile') + 1])
-    for arg in cmd:
-        if arg.startswith('--user-data-dir='):
-            return 'edge', Path(arg.split('=', 1)[1])
-    return None, None
+PROFILE_LOCK = {g.BROWSER_MULLVAD: 'parent.lock', g.BROWSER_EDGE: 'lockfile'}
 
 
 def profile_in_use(kind, profile):
@@ -799,6 +949,11 @@ def profile_in_use(kind, profile):
     return False
 
 
+def mullvad_profile_ready(profile):
+    """Profil ist eingerichtet: prefs.js vorhanden und keine Erweiterung mehr in Warteposition."""
+    return (profile / 'prefs.js').is_file() and not any((profile / 'extensions' / 'staged').glob('*'))
+
+
 def prepare_mullvad_profile(exe, profile):
     """Einmalige, unsichtbare Einrichtung eines neuen Mullvad-Profils.
 
@@ -806,7 +961,7 @@ def prepare_mullvad_profile(exe, profile):
     und startet sich neu; in diesem Moment geladene Seiten bekommen kein JavaScript. Deshalb
     wird ein neues Profil vorher ohne Fenster (headless) initialisiert.
     """
-    if (profile / 'prefs.js').is_file() and not any((profile / 'extensions' / 'staged').glob('*')):
+    if mullvad_profile_ready(profile):
         return True
     profile.mkdir(parents=True, exist_ok=True)
     shot = profile / 'qsgrab-init.png'
@@ -818,7 +973,7 @@ def prepare_mullvad_profile(exe, profile):
             return False
         finally:
             shot.unlink(missing_ok=True)
-        if (profile / 'prefs.js').is_file() and not any((profile / 'extensions' / 'staged').glob('*')):
+        if mullvad_profile_ready(profile):
             return True
     return (profile / 'prefs.js').is_file()
 
@@ -830,8 +985,7 @@ def main(argv=None):
     parser.add_argument('--debug', action='store_true', help='Anfragen (nur Methode/Pfad/Status) und Browserprozess anzeigen.')
     parser.add_argument('--no-check', action='store_true', help='Beim Start keine automatische Sicherheitspruefung.')
     args = parser.parse_args(argv)
-    global DEBUG
-    DEBUG = args.debug
+    debug = args.debug
     try:
         config = g.load_config(args.config)
     except g.Failure as exc:
@@ -839,51 +993,50 @@ def main(argv=None):
         return exc.code
     state = State(config, Path(args.config))
     token = secrets.token_urlsafe(32)
-    port_holder = [0]
-    server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), make_handler(state, token, port_holder))
+    server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), make_handler(state, token, debug))
     server.daemon_threads = True
-    port_holder[0] = server.server_address[1]
-    url = f'http://127.0.0.1:{port_holder[0]}/#t={token}'
+    url = f'http://127.0.0.1:{server.server_address[1]}/#t={token}'
     profile_root = APP / '.ui-profile'
     kind = profile = None
     print('QuiteSafeGrab-Oberflaeche laeuft lokal (nur dieser PC). Dieses Fenster offen lassen; schliessen beendet Quite Safe Grab.')
     if args.no_browser:
         print('Adresse: ' + url)
     else:
-        name, cmd = browser_command(config.get('ui_browser', 'auto'), url, profile_root)
-        if name is None:
-            print('FEHLER: ' + cmd, file=sys.stderr)
+        try:
+            launch = browser_command(config.get('ui_browser', g.BROWSER_AUTO), url, profile_root)
+        except NoBrowser as exc:
+            print(f'FEHLER: {exc}', file=sys.stderr)
             server.server_close()
             return 1
-        kind, profile = profile_of(cmd)
+        kind, profile = launch.kind, launch.profile
         if profile_in_use(kind, profile):
             print('FEHLER: Ein QuiteSafeGrab-Browserfenster ist noch offen. Bitte schliessen und erneut starten.', file=sys.stderr)
             server.server_close()
             return 1
         profile_root.mkdir(exist_ok=True)
-        if kind == 'edge':
+        if kind == g.BROWSER_EDGE:
             reset_profile(profile)   # Edge speichert Verlauf: immer frisch
-        elif kind == 'mullvad':
+        elif kind == g.BROWSER_MULLVAD:
             # Mullvad surft immer privat (kein Verlauf); das Profil bleibt, damit Erweiterungen eingerichtet sind.
-            print('Bereite Mullvad Browser vor ...' if not (profile / 'prefs.js').is_file() else '', end='', flush=True)
-            state.reload_until_alive = (not (profile / 'prefs.js').is_file()
-                                        or any((profile / 'extensions' / 'staged').glob('*')))
-            if not prepare_mullvad_profile(cmd[0], profile):
-                print('\nFEHLER: Mullvad-Browserprofil liess sich nicht einrichten.', file=sys.stderr)
+            # Leerzeile, falls nichts vorzubereiten ist (Ausgabe wie bisher).
+            print('Bereite Mullvad Browser vor ...' if not (profile / 'prefs.js').is_file() else '', flush=True)
+            with state.lock:
+                state.reload_until_alive = not mullvad_profile_ready(profile)
+            if not prepare_mullvad_profile(launch.argv[0], profile):
+                print('FEHLER: Mullvad-Browserprofil liess sich nicht einrichten.', file=sys.stderr)
                 server.server_close()
                 return 1
         try:
-            subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True)
+            subprocess.Popen(launch.argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True)
         except OSError:
             print('FEHLER: Browser liess sich nicht starten.', file=sys.stderr)
             server.server_close()
             return 1
-        print(f'\nGeoeffnet in: {name}' if kind == 'mullvad' else f'Geoeffnet in: {name}')
-        if name.startswith('Microsoft Edge') and config.get('ui_browser') == 'auto':
+        print(f'Geoeffnet in: {launch.name}')
+        if kind == g.BROWSER_EDGE and config.get('ui_browser') == g.BROWSER_AUTO:
             print('Tipp: Mit installiertem Mullvad Browser (https://mullvad.net/browser) oeffnet Quite Safe Grab diesen - ohne Telemetrie, immer privat.')
     launched = time.monotonic()
     if not args.no_check:
-        # Beim Start einmal alle Sicherheitspruefungen, damit die Ampel sofort aktuell ist.
         with state.lock:
             state.start_worker('check')
 
@@ -891,16 +1044,16 @@ def main(argv=None):
         gone_since = None
         seen_open = False
         while True:
-            time.sleep(2)
+            time.sleep(WATCHDOG_INTERVAL_SEC)
             if profile is not None:
                 if profile_in_use(kind, profile):
                     seen_open, gone_since = True, None
-                elif seen_open or time.monotonic() - launched > 120:
-                    if gone_since is None and DEBUG:
+                elif seen_open or time.monotonic() - launched > BROWSER_START_GRACE_SEC:
+                    if gone_since is None and debug:
                         print('[debug] Browserprofil nicht mehr in Benutzung.', flush=True)
                     gone_since = gone_since or time.monotonic()
             with state.lock:
-                busy = state.worker is not None or state.size_worker is not None
+                busy = state.worker is not None or state.size_worker is not None   # auch waehrend der Groessenabfrage
                 silent = time.monotonic() - state.last_seen
             if busy:
                 continue
@@ -919,11 +1072,9 @@ def main(argv=None):
         pass
     finally:
         with state.lock:
-            for tree in (state.tree, state.size_tree):
-                if tree is not None:
-                    tree.kill()
+            state.halt_locked()
         server.server_close()
-        if kind == 'edge' and not profile_in_use(kind, profile):
+        if kind == g.BROWSER_EDGE and not profile_in_use(kind, profile):
             reset_profile(profile)
     return 0
 

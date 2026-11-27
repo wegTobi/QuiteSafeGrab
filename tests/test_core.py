@@ -12,25 +12,25 @@ import weakref
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 import grab as g
 import voe_resolver as voe
+from helpers import RecordingNet, ScriptedRunner, nslookup_runner
 
 CONFIG = g.load_config(Path(g.__file__).with_name('config.default.toml'))
+TXT_1111 = 'o-o.myaddr.l.google.com\ttext =\n\n\t"1.1.1.1"\n'   # nslookup-Antwort: Resolver-Ausgang 1.1.1.1
 
 
 class TestCore(unittest.TestCase):
     def test_redirect_host_is_remembered_and_checks_stay(self):
         """Mediathek-Weiterleitung: ab dem 2. Link derselben Seite zuerst der Weiterleitungsweg, ohne yt-dlp."""
-        calls, checks = [], []
+        calls, net = [], RecordingNet()
+        checks = net.calls
 
         class Runner:
             def run(self, args, **kw):
                 calls.append('generic' if '--force-generic-extractor' in args else 'ytdlp')
                 return g.Result(1, '', 'ERROR: Unsupported URL: https://mediathek.example/redirect/1')
-
-        class Net:
-            def check(self, label, expected=None):
-                checks.append(label)
 
         def resolver(url, *a):
             calls.append('redirect')
@@ -38,9 +38,9 @@ class TestCore(unittest.TestCase):
 
         def resolve(url):
             calls.clear(); checks.clear()
-            return g.resolve_item(url, None, CONFIG, Runner(), Net(), Path('.'), '1.1.1.1')
+            return g.resolve_item(url, None, CONFIG, Runner(), net, Path('.'), '1.1.1.1')
 
-        with patch.object(g, '_redirect_hosts', set()), patch.object(g, 'run_voe_resolver', side_effect=resolver):
+        with patch.object(g, 'SESSION', g.Session()), patch.object(g, 'run_voe_resolver', side_effect=resolver):
             self.assertEqual(resolve('https://mediathek.example/redirect/1')['name'], 'Film_1')
             self.assertEqual(calls, ['ytdlp', 'generic', 'redirect'])
             self.assertEqual(checks, ['IPv4 vor Generic-Aufloesung', 'IPv4 vor Weiterleitungs-Aufloesung'])
@@ -69,16 +69,6 @@ class TestCore(unittest.TestCase):
         self.assertIsNone(g._header_size('Content-Length: abc'))
 
     def test_media_size(self):
-        calls = []
-
-        class Runner:
-            def __init__(self, answers):
-                self.answers = answers
-
-            def run(self, argv, **kw):
-                calls.append((argv, kw.get('input_text')))
-                return self.answers.pop(0)
-
         checked = []
 
         def public(host):
@@ -88,38 +78,37 @@ class TestCore(unittest.TestCase):
 
         self.enterContext(patch.object(g, 'public_host', public))
         voe = {'voe': True, 'media': 'https://cdn.example/v.mp4?sig=geheim', 'referer': 'https://voe.sx/', 'info': None}
-        self.assertEqual(g.media_size(voe, Runner([g.Result(0, 'HTTP/1.1 200 OK\nContent-Length: 700\n')]), Path('.')), 700)
+        r = ScriptedRunner([g.Result(0, 'HTTP/1.1 200 OK\nContent-Length: 700\n')])
+        self.assertEqual(g.media_size(voe, r, Path('.')), 700)
         self.assertEqual(checked, ['cdn.example'])
-        self.assertNotIn('--location', calls[-1][0])                  # Weiterleitungen nie blind folgen
-        argv, stdin = calls[-1]
+        argv, stdin = r.calls[-1]
+        self.assertNotIn('--location', argv)                          # Weiterleitungen nie blind folgen
         self.assertIn('--head', argv)
         self.assertNotIn('geheim', ' '.join(map(str, argv)))          # signierte Adresse nicht in der Kommandozeile
         self.assertIn('sig=geheim', stdin)
         # HEAD verweigert -> ein einzelnes Byte anfragen
-        calls.clear()
-        r = Runner([g.Result(22, '', 'HTTP 405'), g.Result(0, 'HTTP/1.1 206\nContent-Range: bytes 0-0/9000\n')])
+        r = ScriptedRunner([g.Result(22, '', 'HTTP 405'), g.Result(0, 'HTTP/1.1 206\nContent-Range: bytes 0-0/9000\n')])
         self.assertEqual(g.media_size(voe, r, Path('.')), 9000)
-        self.assertIn('--range', calls[-1][0])
+        self.assertIn('--range', r.calls[-1][0])
         # Weiterleitung: Ziel wird vor dem Abruf erneut geprueft
         checked.clear()
-        r = Runner([g.Result(0, 'HTTP/1.1 302 Found\nLocation: https://cdn2.example/v.mp4\n'),
+        r = ScriptedRunner([g.Result(0, 'HTTP/1.1 302 Found\nLocation: https://cdn2.example/v.mp4\n'),
                     g.Result(0, 'HTTP/1.1 200 OK\nContent-Length: 800\n')])
         self.assertEqual(g.media_size(voe, r, Path('.')), 800)
         self.assertEqual(checked, ['cdn.example', 'cdn2.example'])
         # Weiterleitung ins eigene Netz / auf den eigenen PC oder auf http: kein Abruf
         for target in ('https://127.0.0.1/x', 'https://router.local/x', 'http://cdn3.example/x'):
-            calls.clear()
-            r = Runner([g.Result(0, f'HTTP/1.1 302 Found\nLocation: {target}\n')])
+            r = ScriptedRunner([g.Result(0, f'HTTP/1.1 302 Found\nLocation: {target}\n')])
             self.assertIsNone(g.media_size(voe, r, Path('.')))
-            self.assertEqual(len(calls), 1)
-        calls.clear()
-        self.assertIsNone(g.media_size(dict(voe, media='https://127.0.0.1/v.mp4'), Runner([]), Path('.')))
-        self.assertEqual(calls, [])
+            self.assertEqual(len(r.calls), 1)
+        r = ScriptedRunner([])
+        self.assertIsNone(g.media_size(dict(voe, media='https://127.0.0.1/v.mp4'), r, Path('.')))
+        self.assertEqual(r.calls, [])
         # Stream ohne Gesamtgroesse, yt-dlp-Angaben
-        self.assertIsNone(g.media_size(dict(voe, media='https://cdn.example/master.m3u8'), Runner([]), Path('.')))
-        self.assertEqual(g.media_size({'info': {'filesize_approx': 5e8}}, Runner([]), Path('.')), 500000000)
-        self.assertEqual(g.media_size({'info': {'requested_formats': [{'filesize': 3}, {'filesize': 4}]}}, Runner([]), Path('.')), 7)
-        self.assertIsNone(g.media_size({'info': {'requested_formats': [{'filesize': 3}, {}]}}, Runner([]), Path('.')))
+        self.assertIsNone(g.media_size(dict(voe, media='https://cdn.example/master.m3u8'), ScriptedRunner([]), Path('.')))
+        self.assertEqual(g.media_size({'info': {'filesize_approx': 5e8}}, ScriptedRunner([]), Path('.')), 500000000)
+        self.assertEqual(g.media_size({'info': {'requested_formats': [{'filesize': 3}, {'filesize': 4}]}}, ScriptedRunner([]), Path('.')), 7)
+        self.assertIsNone(g.media_size({'info': {'requested_formats': [{'filesize': 3}, {}]}}, ScriptedRunner([]), Path('.')))
 
     def test_media_hosts_must_be_public(self):
         def public(host):
@@ -136,12 +125,7 @@ class TestCore(unittest.TestCase):
                     g.check_media_hosts(bad)
 
     def test_sizes_mode_checks_and_events(self):
-        checks, events = [], []
-
-        class Net:
-            def check(self, label, expected=None):
-                checks.append(label)
-                return '1.1.1.1'
+        net, events = RecordingNet(), []
 
         class Store:
             @contextlib.contextmanager
@@ -155,8 +139,8 @@ class TestCore(unittest.TestCase):
 
         with patch.object(g, 'resolve_item', resolve), patch.object(g, 'media_size', lambda item, *a: 1000), \
                 patch.object(g, 'emit', lambda kind, **d: events.append((kind, d))), contextlib.redirect_stdout(io.StringIO()):
-            self.assertEqual(g.sizes(CONFIG, None, Net(), Store(), ['https://a.example/1', 'https://kaputt.example/2']), 0)
-        self.assertEqual(checks, ['IPv4 vor Groessenabfrage', 'IPv4 vor Groessen-Eintrag', 'IPv4 vor Groessen-Eintrag', 'IPv4 nach Groessenabfrage'])
+            self.assertEqual(g.sizes(CONFIG, None, net, Store(), ['https://a.example/1', 'https://kaputt.example/2']), 0)
+        self.assertEqual(net.calls, ['IPv4 vor Groessenabfrage', 'IPv4 vor Groessen-Eintrag', 'IPv4 vor Groessen-Eintrag', 'IPv4 nach Groessenabfrage'])
         self.assertIn(('size', {'index': 0, 'bytes': 1000}), events)
         self.assertIn(('size', {'index': 1, 'bytes': None}), events)
 
@@ -217,11 +201,8 @@ class TestCore(unittest.TestCase):
         self.assertEqual(caught.exception.code, 2)
 
     def test_dns_single_txt_and_single_geo(self):
-        class Fake:
-            def run(self, *a, **kw):
-                return g.Result(0, 'Server:  dns.example\nAddress:  10.2.0.1\n\nNicht autorisierende Antwort:\n'
-                                   'o-o.myaddr.l.google.com\ttext =\n\n\t"1.1.1.1"\n')
-        net = g.Network(CONFIG, Fake())
+        net = g.Network(CONFIG, nslookup_runner('Server:  dns.example\nAddress:  10.2.0.1\n\nNicht autorisierende Antwort:\n'
+                                                'o-o.myaddr.l.google.com\ttext =\n\n\t"1.1.1.1"\n'))
         count = []
         def geo(url, version=4):
             count.append(url)
@@ -236,49 +217,40 @@ class TestCore(unittest.TestCase):
         self.assertIn('DNS: IP 1.1.1.1', out.getvalue())
 
     def test_dns_reuses_exit_status_only_for_same_ip(self):
-        class Fake:
-            def run(self, *a, **kw):
-                return g.Result(0, 'o-o.myaddr.l.google.com\ttext =\n\n\t"1.1.1.1"\n')
         count = []
         def geo(url, version=4):
             count.append(url)
             return {'ip': '1.1.1.1', 'country_code': 'NL', 'org': 'Proton'}
-        net = g.Network(CONFIG, Fake())
+        net = g.Network(CONFIG, nslookup_runner(TXT_1111))
         net.json_request = geo
         same = {'ip': '1.1.1.1', 'country_code': 'NL', 'country': 'Netherlands', 'org': 'Proton AG', 'source': 'am.i.mullvad.net'}
         self.assertEqual(net.dns(same), '1.1.1.1')
         self.assertEqual(count, [])
-        net = g.Network(CONFIG, Fake())
+        net = g.Network(CONFIG, nslookup_runner(TXT_1111))
         net.json_request = geo
         self.assertEqual(net.dns(dict(same, ip='2.2.2.2')), '1.1.1.1')
         self.assertEqual(len(count), 1)
         # Wiederverwendete Daten laufen weiter durch die Policy.
-        net = g.Network(CONFIG, Fake())
+        net = g.Network(CONFIG, nslookup_runner(TXT_1111))
         with self.assertRaises(g.Failure) as caught:
             net.dns(dict(same, org='Telekom'))
         self.assertEqual(caught.exception.code, 2)
 
     def test_dns_geo_failure_for_new_resolver_still_stops(self):
-        class Fake:
-            def run(self, *a, **kw):
-                return g.Result(0, 'o-o.myaddr.l.google.com\ttext =\n\n\t"1.1.1.1"\n')
-        net = g.Network(CONFIG, Fake())
+        net = g.Network(CONFIG, nslookup_runner(TXT_1111))
         net.json_request = lambda *a, **kw: {'error': True, 'reason': 'RateLimited'}
         with self.assertRaises(g.Failure) as caught:
             net.dns({'ip': '9.9.9.9', 'country_code': 'NL', 'org': 'Proton'})
         self.assertEqual(caught.exception.ident, 'DNS_GEO_FAILED')
 
     def test_dns_geo_falls_back_to_ipinfo_once(self):
-        class Fake:
-            def run(self, *a, **kw):
-                return g.Result(0, 'o-o.myaddr.l.google.com\ttext =\n\n\t"1.1.1.1"\n')
         calls = []
         def geo(url, version=4):
             calls.append(url)
             if 'ipapi.co' in url:
                 raise ValueError('Status-Endpunkt antwortet nicht')   # z. B. HTTP 429
             return {'ip': '1.1.1.1', 'country': 'CH', 'org': 'AS9009 M247 Europe SRL', 'city': 'Zurich'}
-        net = g.Network(CONFIG, Fake())
+        net = g.Network(CONFIG, nslookup_runner(TXT_1111))
         net.json_request = geo
         with contextlib.redirect_stdout(io.StringIO()) as out:
             self.assertEqual(net.dns({'ip': '9.9.9.9'}), '1.1.1.1')
@@ -302,11 +274,8 @@ class TestCore(unittest.TestCase):
         self.assertEqual(g.parse_txt_ips('text =\n"192.168.0.1"\n"nope"'), set())
         self.assertEqual(g.parse_txt_ips('"1.1.1.1" "8.8.8.8"'), {'1.1.1.1', '8.8.8.8'})
         for text, ident in (('Server: x\n', 'DNS_RESOLVER_INVALID'), ('"1.1.1.1" "8.8.8.8"', 'DNS_RESOLVER_AMBIGUOUS')):
-            class Fake:
-                def run(self, *a, **kw):
-                    return g.Result(0, text)
             with self.assertRaises(g.Failure) as caught:
-                g.Network(CONFIG, Fake()).dns()
+                g.Network(CONFIG, nslookup_runner(text)).dns()
             self.assertEqual(caught.exception.ident, ident)
 
     def test_ipv6_unreachable_is_noted_reachable_is_checked(self):
@@ -319,6 +288,24 @@ class TestCore(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()), self.assertRaises(g.Failure) as caught:
             net.ipv6()
         self.assertEqual(caught.exception.ident, 'HOME_COUNTRY_DETECTED')
+
+    def test_force_never_bypasses_ipv6_allowlist(self):
+        """V5a: --force umgeht nur die IPv4-/DNS-Positivliste; ein IPv6-Ausgang ausserhalb der Liste stoppt immer."""
+        outside = {'ip': '2606:4700:4700::1111', 'country': 'Netherlands', 'organization': 'Unbekannter Hoster B.V.'}
+        net = g.Network(CONFIG, None, force=True)
+        net.json_request = lambda *a: outside
+        with contextlib.redirect_stdout(io.StringIO()) as out, self.assertRaises(g.Failure) as caught:
+            net.ipv6()
+        self.assertEqual((caught.exception.code, caught.exception.ident), (2, 'ORG_NOT_ALLOWLISTED'))
+        self.assertNotIn('--force', out.getvalue())
+        # Gegenprobe: dieselbe Organisation ueber IPv4 laesst --force (mit Warnung) durch.
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            net.policy(g.parse_status(dict(outside, ip='1.1.1.1'), 'am.i.mullvad.net'), 'IPv4')
+        self.assertIn('--force', out.getvalue())
+        # Erlaubter IPv6-Ausgang geht weiter durch.
+        net.json_request = lambda *a: dict(outside, organization='Proton AG')
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(net.ipv6(), '2606:4700:4700::1111')
 
     def test_ip_change_blocks(self):
         net = g.Network(CONFIG, None)
@@ -365,7 +352,7 @@ class TestCore(unittest.TestCase):
     def test_stream_loss_rejected(self):
         data = {'streams': [{'codec_type': 'video', 'codec_name': 'h264'}, {'codec_type': 'audio', 'codec_name': 'aac'}, {'codec_type': 'subtitle', 'codec_name': 'subrip'}, {'codec_type': 'attachment', 'codec_name': 'ttf'}]}
         with self.assertRaises(g.Failure):
-            g.verify_streams(data, {'streams': data['streams'][:-1]})
+            g.verify_streams(g.selected_streams(data), {'streams': data['streams'][:-1]})
 
     def test_queue_semantics(self):
         entries = [{'valid': True} for _ in range(3)]
@@ -394,9 +381,6 @@ class TestCore(unittest.TestCase):
             self.assertEqual(list(store.work.iterdir()), [])
 
     def test_probe_hard_deadline_exit_and_empty_file(self):
-        class Net:
-            skip=False
-            def check(self,*a): return '1.1.1.1'
         for result,create in [(g.Result(7,''),True),(g.Result(0,''),False),(g.Result(-9,'',timed_out=True),True)]:
             class Fake:
                 def run(self,args,**kwargs):
@@ -406,26 +390,63 @@ class TestCore(unittest.TestCase):
             with tempfile.TemporaryDirectory() as d:
                 fake=Fake()
                 with self.assertRaises(g.Failure) as caught:
-                    g.probe(CONFIG,fake,Net(),Path(d))
+                    g.probe(CONFIG,fake,RecordingNet(),Path(d))
                 self.assertEqual(caught.exception.code,2)
                 self.assertEqual(fake.timeout,60)
                 self.assertFalse((Path(d)/'probe.mp4').exists())
 
     def test_postcheck_blocks_publication(self):
-        class Net:
-            def check(self, *a):
-                g.fail(2, 'EXIT_IP_CHANGED', 'simulated')
+        net = RecordingNet(fail_on=1)   # erster Pruefpunkt hier = Nachpruefung (probe/transfer sind ersetzt)
         with tempfile.TemporaryDirectory() as d:
             store = g.Store(d)
             def fake_remux(raw, runner):
                 raw.write_bytes(b'video')
                 return raw, '.mp4'
             with patch.object(g, 'probe', return_value='1.1.1.1'), patch.object(g, 'resolve_item', return_value={'name': 'Test'}), \
-                 patch.object(g, 'transfer', side_effect=lambda i,c,r,n,w,b: w/'clean.mp4'), patch.object(g, 'remux', side_effect=fake_remux):
-                with self.assertRaises(g.Failure):
-                    g.download('https://example.com/x', None, CONFIG, None, Net(), store)
-            self.assertEqual(list(store.output.iterdir()), [])
-            self.assertFalse((store.state / '.last_exit_ip').exists())
+                 patch.object(g, 'transfer', side_effect=lambda i,c,r,n,w,b: w/'clean.mp4'), patch.object(g, 'remux', side_effect=fake_remux), \
+                 patch.object(g, 'check_media_hosts'), contextlib.redirect_stdout(io.StringIO()):
+                with self.assertRaises(g.Failure) as caught:
+                    g.download('https://example.com/x', None, CONFIG, None, net, store)
+            # Abbruch kommt wirklich aus der Nachpruefung (nicht schon aus der Hostpruefung davor)
+            self.assertEqual((caught.exception.code, caught.exception.ident), (2, 'EXIT_IP_CHANGED'))
+            self.assertEqual(net.calls, ['IPv4 nach Transfer/Remux'])
+            self.assertEqual(list(store.output.iterdir()), [])   # nichts veroeffentlicht
+            self.assertEqual(list(store.state.iterdir()), [])    # und keine Spur (keine Exit-IP) im Zustand
+
+    def test_exit_ip_never_stored_and_leftover_removed(self):
+        """V6: Die Exit-IP landet nie auf der Platte; eine alte .last_exit_ip wird beim Bereinigen entfernt."""
+        with tempfile.TemporaryDirectory() as d:
+            store = g.Store(d)
+            leftover = store.state / '.last_exit_ip'
+            leftover.write_text('185.159.157.1\n', encoding='ascii')
+            (store.state / 'ui-checks.json').write_text('{}', encoding='utf-8')
+            with contextlib.redirect_stdout(io.StringIO()):
+                store.cleanup()
+            self.assertFalse(leftover.exists())
+            self.assertTrue((store.state / 'ui-checks.json').is_file())   # nur genau diese Datei
+            def fake_remux(raw, runner):
+                raw.write_bytes(b'video')
+                return raw, '.mp4'
+            with patch.object(g, 'probe', return_value='185.159.157.1'), patch.object(g, 'resolve_item', return_value={'name': 'Test'}), \
+                 patch.object(g, 'transfer', side_effect=lambda i,c,r,n,w,b: w/'clean.mp4'), patch.object(g, 'remux', side_effect=fake_remux), \
+                 patch.object(g, 'check_media_hosts'), contextlib.redirect_stdout(io.StringIO()):
+                target = g.download('https://example.com/x', None, CONFIG, None, RecordingNet(ip='185.159.157.1'), store)
+            self.assertTrue(target.is_file())
+            self.assertEqual(sorted(p.name for p in store.state.iterdir()), ['ui-checks.json'])
+            for path in Path(d).rglob('*'):
+                if path.is_file():
+                    self.assertNotIn(b'185.159.157.1', path.read_bytes(), path.name)
+
+    def test_leftover_exit_ip_only_removed_as_regular_file(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = g.Store(d)
+            odd = store.state / '.last_exit_ip'
+            odd.mkdir()
+            (odd / 'inhalt').write_text('x', encoding='ascii')
+            with contextlib.redirect_stdout(io.StringIO()) as out:
+                store.cleanup()
+            self.assertTrue((odd / 'inhalt').is_file())   # kein Ordner/Link wird angefasst
+            self.assertIn('keine normale Datei', out.getvalue())
 
     def test_atomic_collision_and_cleanup(self):
         with tempfile.TemporaryDirectory() as d:
@@ -489,7 +510,7 @@ class TestCore(unittest.TestCase):
         class Info(dict): pass
         info=Info(url='https://cdn.example/video.mp4?token=private',title='Grüße')
         reference=weakref.ref(info)
-        item={'voe':False,'referer':'https://example.com/','info':info,'media':None}
+        item=g.Item(voe=False,referer='https://example.com/',info=info,media=None)
         del info
         calls=[]
         class Net:
@@ -513,9 +534,7 @@ class TestCore(unittest.TestCase):
         self.assertEqual(calls[1]['title'],'Grüße')
 
     def test_retry_is_fresh_and_headers(self):
-        checks = []
-        class Net:
-            def check(self, *a): checks.append(a)
+        net = RecordingNet()
         class Fake:
             def __init__(self): self.calls = []
             def run(self, args, **kw):
@@ -532,8 +551,8 @@ class TestCore(unittest.TestCase):
         item = {'voe': True, 'referer': 'https://voe.sx/', 'info': None, 'media': 'https://cdn.example/x.mp4?token=secret'}
         with tempfile.TemporaryDirectory() as d:
             fake = Fake()
-            g.transfer(item, CONFIG, fake, Net(), Path(d), '1.1.1.1')
-        self.assertEqual(len(checks), 2)
+            g.transfer(item, CONFIG, fake, net, Path(d), '1.1.1.1')
+        self.assertEqual(len(net.calls), 2)
         self.assertIn('--http-chunk-size', fake.calls[0])
         self.assertNotIn('--http-chunk-size', fake.calls[1])
         self.assertNotIn('--concurrent-fragments', fake.calls[1])

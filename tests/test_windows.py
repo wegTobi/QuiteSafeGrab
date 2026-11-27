@@ -16,9 +16,11 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 import grab as g
 import syscompat as sc
 import winguard
+from helpers import temp_dir, write_config
 
 CONFIG = g.load_config(Path(g.__file__).with_name('config.default.toml'))
 
@@ -26,6 +28,9 @@ PROGRAMS = [r'C:\Users\Beispiel\Quite Safe Grab\python\python.exe', r'C:\Tools\q
             r'C:\Tools\qsgrab\tools\ffprobe.exe', r'C:\Windows\System32\curl.exe', r'C:\Windows\System32\nslookup.exe']
 VPN_IP = '10.2.0.2'
 LAN_IP = '192.168.178.20'
+# Erwartete Sperrbereiche fest eingetragen (nicht mit der Umsetzung berechnet): alles ausser Loopback und VPN-Adresse.
+V4_FOR = {'10.2.0.2': ['0.0.0.0-10.2.0.1', '10.2.0.3-126.255.255.255', '128.0.0.0-255.255.255.255'],
+          '10.2.0.9': ['0.0.0.0-10.2.0.8', '10.2.0.10-126.255.255.255', '128.0.0.0-255.255.255.255']}
 
 
 def adapters(vpn=VPN_IP, lan=LAN_IP):
@@ -36,7 +41,7 @@ def adapters(vpn=VPN_IP, lan=LAN_IP):
 
 
 def good_rules(vpn=VPN_IP, programs=PROGRAMS):
-    v4 = winguard.format_v4_ranges(winguard.blocked_v4_ranges([vpn]))
+    v4 = list(V4_FOR[vpn])
     rules = []
     for i, program in enumerate(programs, 1):
         rules.append({'Name': f'QuiteSafeGrab-v4-{i}', 'Enabled': 'True', 'Direction': 'Outbound', 'Action': 'Block',
@@ -58,8 +63,8 @@ def state(**kw):
 
 class TestWinguardLogic(unittest.TestCase):
     def test_blocked_ranges_exclude_only_loopback_and_vpn(self):
-        self.assertEqual(winguard.format_v4_ranges(winguard.blocked_v4_ranges([VPN_IP])),
-                         ['0.0.0.0-10.2.0.1', '10.2.0.3-126.255.255.255', '128.0.0.0-255.255.255.255'])
+        self.assertEqual(winguard.format_v4_ranges(winguard.blocked_v4_ranges([VPN_IP])), V4_FOR[VPN_IP])
+        self.assertEqual(winguard.format_v4_ranges(winguard.blocked_v4_ranges(['10.2.0.9'])), V4_FOR['10.2.0.9'])
         ranges = winguard.blocked_v4_ranges([VPN_IP, '10.2.0.3'])
         self.assertEqual(winguard.format_v4_ranges(ranges)[1], '10.2.0.4-126.255.255.255')
         for ip, blocked in ((VPN_IP, False), ('127.0.0.1', False), ('192.168.178.20', True), ('10.2.0.1', True),
@@ -111,7 +116,7 @@ class TestWinguardLogic(unittest.TestCase):
             change(rules)
             return winguard.check_rules(state(rules=rules), PROGRAMS, [VPN_IP])
         cases = {
-            'stale vpn address': lambda r: r[0].update(LocalAddress=winguard.format_v4_ranges(winguard.blocked_v4_ranges(['10.2.0.9']))),
+            'stale vpn address': lambda r: r[0].update(LocalAddress=list(V4_FOR['10.2.0.9'])),
             'disabled': lambda r: r[0].update(Enabled='False'),
             'allow instead of block': lambda r: r[2].update(Action='Allow'),
             'inbound': lambda r: r[0].update(Direction='Inbound'),
@@ -191,31 +196,98 @@ class TestWinguardLogic(unittest.TestCase):
         self.assertIn('Eigene Konfig', script)
         self.assertIn('-Verb RunAs', script)
 
+    def fw_vpn(self, answer, config_path=None):
+        """fw.py vpn mit nachgestellter Adapterabfrage; liefert (Exitcode, Ausgabe, Aufrufe)."""
+        import fw
+        calls = []
+
+        def run(argv, timeout):
+            calls.append(argv)
+            if isinstance(answer, BaseException):
+                raise answer
+            return answer
+        path = config_path or str(Path(g.__file__).with_name('config.default.toml'))
+        with patch.object(fw, 'run', run), contextlib.redirect_stdout(io.StringIO()) as out:
+            code = fw.main(['vpn', '--config', path])
+        return code, out.getvalue(), calls
+
+    def test_fw_vpn_only_zero_with_vpn_ipv4(self):
+        """V2: nur eine gelungene Abfrage mit VPN-Adapter + IPv4 ergibt 0 (Update-Suche darf GitHub fragen)."""
+        import fw
+        import subprocess
+        quick = winguard.powershell_args(winguard.QUICK_STATE_SCRIPT)
+        code, out, calls = self.fw_vpn((0, json.dumps({'Adapters': adapters()}), ''))
+        self.assertEqual(code, fw.VPN_UP)
+        self.assertEqual(code, 0)
+        self.assertIn('VPN verbunden', out)
+        self.assertEqual(calls, [[winguard.POWERSHELL] + quick])   # nur lesen: eine Adapterabfrage, keine Regel
+        cases = [
+            ((0, json.dumps({'Adapters': adapters(vpn=None)}), ''), fw.VPN_DOWN),
+            ((0, json.dumps({'Adapters': [{'Name': 'ProtonVPN', 'InterfaceDescription': 'x', 'IPv4': []}]}), ''), fw.VPN_DOWN),
+            ((1, '', 'Zugriff verweigert'), fw.VPN_QUERY_FAILED),
+            ((0, 'kein json', ''), fw.VPN_QUERY_FAILED),
+            (subprocess.TimeoutExpired('powershell', 60), fw.VPN_QUERY_FAILED),
+            (OSError('kaputt'), fw.VPN_QUERY_FAILED),
+        ]
+        for answer, expected in cases:
+            code, out, calls = self.fw_vpn(answer)
+            self.assertEqual(code, expected, answer)
+            self.assertNotEqual(code, 0)
+            self.assertTrue(out.strip())
+        self.assertEqual((fw.VPN_CONFIG_ERROR, fw.VPN_QUERY_FAILED, fw.VPN_DOWN), (1, 2, 3))
+
+    def test_fw_vpn_invalid_config_is_not_vpn_up(self):
+        import fw
+        vpn_up = (0, json.dumps({'Adapters': adapters()}), '')
+        bad = write_config(self, lambda t: 'kein = [toml')
+        code, out, calls = self.fw_vpn(vpn_up, str(bad))
+        self.assertEqual((code, calls), (fw.VPN_CONFIG_ERROR, []))
+        code, out, calls = self.fw_vpn(vpn_up, str(temp_dir(self) / 'fehlt.toml'))
+        self.assertEqual((code, calls), (fw.VPN_CONFIG_ERROR, []))
+        empty = write_config(self, lambda t: t.replace('["Proton", "ProTUN"]', '[]').replace('firewall_enforce = true', 'firewall_enforce = false'))
+        code, out, calls = self.fw_vpn(vpn_up, str(empty))
+        self.assertNotEqual(code, 0)   # ohne Adaptermuster ist kein VPN nachweisbar
+        self.assertEqual(calls, [])
+
     def test_powershell_args_roundtrip(self):
         import base64
         args = winguard.powershell_args('Write-Output "x"')
         self.assertEqual(base64.b64decode(args[-1]).decode('utf-16-le'), 'Write-Output "x"')
+        # Sicherheitsteil: Skript nur kodiert (kein -Command mit Klartext), nie interaktiv
+        self.assertEqual(args[-2], '-EncodedCommand')
         self.assertIn('-NonInteractive', args)
         self.assertNotIn('-Command', args)
 
 
+QUICK_ENCODED = winguard.powershell_args(winguard.QUICK_STATE_SCRIPT)[-1]
+
+
 class FakeRunner:
-    """Antwortet auf PowerShell-Abfrage und Selbsttest; merkt sich die Aufrufe."""
+    """Antwortet auf PowerShell-Abfrage und Selbsttest; merkt sich die Aufrufe.
+    kinds: 'quick' (nur Adapter), 'full' (Adapter + Regeln) oder 'selftest:<ip,...>' je Aufruf."""
     def __init__(self, query, selftest='SELFTEST {ip} BLOCKED'):
-        self.query, self.selftest, self.calls = query, selftest, []
+        self.query, self.selftest, self.calls, self.kinds = query, selftest, [], []
 
     def run(self, argv, **kw):
         self.calls.append(argv)
         if argv[0] == g.POWERSHELL:
+            self.kinds.append('quick' if argv[-1] == QUICK_ENCODED else 'full')
             return self.query if isinstance(self.query, g.Result) else g.Result(0, self.query)
         ips = argv[argv.index(g.winguard.SELFTEST_CODE) + 1:]
+        self.kinds.append('selftest:' + ','.join(ips))
         return g.Result(0, '\n'.join(self.selftest.format(ip=ip) for ip in ips))
 
 
 class TestGuard(unittest.TestCase):
-    def guard(self, runner, config=CONFIG, platform='win32'):
+    @contextlib.contextmanager
+    def run_session(self, platform='win32'):
+        """Ein grab.py-Lauf: frische Session (Waechter-Zwischenspeicher leer), feste Programmliste."""
         with patch.object(g.sys, 'platform', platform), patch.object(g, 'guard_programs', return_value=PROGRAMS), \
-             patch.object(g, '_selftest_done', set()), patch.object(g, '_rules_ok', set()), patch.object(g, '_guard_warned', set()), contextlib.redirect_stdout(io.StringIO()) as out:
+             patch.object(g, 'SESSION', g.Session()), contextlib.redirect_stdout(io.StringIO()) as out:
+            yield out
+
+    def guard(self, runner, config=CONFIG, platform='win32'):
+        with self.run_session(platform) as out:
             g.ensure_guard(runner, config)
         return out.getvalue()
 
@@ -229,42 +301,74 @@ class TestGuard(unittest.TestCase):
         out = self.guard(runner)
         self.assertEqual(runner.calls[0][0], g.POWERSHELL)
         self.assertIn('-EncodedCommand', runner.calls[0])
-        self.assertEqual(runner.calls[1][-1], LAN_IP)
+        self.assertEqual(runner.kinds, ['full', 'selftest:' + LAN_IP])
         self.assertIn('Selbsttest bestanden', out)
 
     def test_selftest_runs_once_per_vpn_address(self):
         runner = FakeRunner(state_json())
-        with patch.object(g.sys, 'platform', 'win32'), patch.object(g, 'guard_programs', return_value=PROGRAMS), \
-             patch.object(g, '_selftest_done', set()), patch.object(g, '_rules_ok', set()), contextlib.redirect_stdout(io.StringIO()):
+        with self.run_session():
             g.ensure_guard(runner, CONFIG)
             g.ensure_guard(runner, CONFIG)
-        self.assertEqual(len(runner.calls), 3)  # 2 Abfragen + 1 Selbsttest
+        self.assertEqual(runner.kinds, ['full', 'selftest:' + LAN_IP, 'quick'])  # 2 Abfragen + 1 Selbsttest
 
     def test_quick_check_after_full_pass_and_full_again_on_change(self):
-        import base64
-        quick = winguard.powershell_args(winguard.QUICK_STATE_SCRIPT)[-1]
         self.assertNotIn('Get-NetFirewallRule', winguard.QUICK_STATE_SCRIPT)
-        scripts = []
-
-        class Runner(FakeRunner):
-            def run(inner, argv, **kw):
-                if argv[0] == g.POWERSHELL:
-                    scripts.append('quick' if argv[-1] == quick else 'full')
-                return super().run(argv, **kw)
-
-        runner = Runner(state_json())
-        with patch.object(g.sys, 'platform', 'win32'), patch.object(g, 'guard_programs', return_value=PROGRAMS), \
-             patch.object(g, '_selftest_done', set()), patch.object(g, '_rules_ok', set()), contextlib.redirect_stdout(io.StringIO()):
+        runner = FakeRunner(state_json())
+        with self.run_session():
             g.ensure_guard(runner, CONFIG)
             g.ensure_guard(runner, CONFIG)
-            self.assertEqual(scripts, ['full', 'quick'])
+            self.assertEqual(runner.kinds, ['full', 'selftest:' + LAN_IP, 'quick'])
+            runner.kinds.clear()
             runner.query = state_json(ad=adapters(vpn='10.2.0.9'), rules=good_rules(vpn='10.2.0.9'))   # neue VPN-Adresse
             g.ensure_guard(runner, CONFIG)
-            self.assertEqual(scripts, ['full', 'quick', 'quick', 'full'])
+            self.assertEqual(runner.kinds, ['quick', 'full', 'selftest:' + LAN_IP])
             runner.query = state_json(ad=adapters(vpn=None))   # VPN weg -> volle Pruefung meldet den Fehler
             with self.assertRaises(g.Failure) as caught:
                 g.ensure_guard(runner, CONFIG)
             self.assertEqual(caught.exception.ident, 'VPN_ADAPTER_MISSING')
+
+    def test_new_vpn_address_with_old_rules_stops_in_same_run(self):
+        """Nach bestandener Pruefung wechselt die VPN-Adresse, die Regeln gelten noch fuer die alte:
+        die schnelle Pruefung reicht nicht, die volle stoppt mit FIREWALL_RULES_MISSING."""
+        runner = FakeRunner(state_json())
+        with self.run_session():
+            g.ensure_guard(runner, CONFIG)
+            runner.kinds.clear()
+            runner.query = state_json(ad=adapters(vpn='10.2.0.9'))   # Regeln weiter fuer 10.2.0.2
+            with self.assertRaises(g.Failure) as caught:
+                g.ensure_guard(runner, CONFIG)
+            self.assertEqual((caught.exception.code, caught.exception.ident), (2, 'FIREWALL_RULES_MISSING'))
+            self.assertEqual(runner.kinds, ['quick', 'full'])   # kein Selbsttest, kein Weiterlaufen
+            with self.assertRaises(g.Failure) as caught:       # bleibt gesperrt, auch beim naechsten Pruefpunkt
+                g.ensure_guard(runner, CONFIG)
+            self.assertEqual(caught.exception.ident, 'FIREWALL_RULES_MISSING')
+
+    def test_new_lan_address_gets_full_check_and_selftest(self):
+        """V1: Selbsttest-Schluessel = guard_key (inkl. Nicht-VPN-Adressen). Neue LAN-Adresse B im selben Lauf:
+        volle Pruefung UND Selbsttest fuer B."""
+        lan_b = '192.168.1.77'
+        runner = FakeRunner(state_json())
+        with self.run_session():
+            g.ensure_guard(runner, CONFIG)
+            self.assertEqual(runner.kinds, ['full', 'selftest:' + LAN_IP])
+            runner.kinds.clear()
+            runner.query = state_json(ad=adapters(lan=lan_b))
+            g.ensure_guard(runner, CONFIG)
+            self.assertEqual(runner.kinds, ['quick', 'full', 'selftest:' + lan_b])
+            runner.kinds.clear()
+            g.ensure_guard(runner, CONFIG)   # unveraendert: nur schnelle Pruefung, kein weiterer Selbsttest
+            self.assertEqual(runner.kinds, ['quick'])
+
+    def test_new_lan_address_with_open_firewall_stops(self):
+        """V1: Ist die neue Adresse nicht gesperrt, stoppt der Lauf (vorher wurde der Selbsttest uebersprungen)."""
+        runner = FakeRunner(state_json())
+        with self.run_session():
+            g.ensure_guard(runner, CONFIG)
+            runner.query = state_json(ad=adapters(lan='192.168.1.77'))
+            runner.selftest = 'SELFTEST {ip} OPEN:10060'
+            with self.assertRaises(g.Failure) as caught:
+                g.ensure_guard(runner, CONFIG)
+        self.assertEqual((caught.exception.code, caught.exception.ident), (2, 'FIREWALL_SELFTEST_FAILED'))
 
     def test_open_firewall_in_selftest_stops(self):
         for line in ('SELFTEST {ip} OPEN:10060', 'SELFTEST {ip} OPEN:connected', ''):
@@ -291,7 +395,7 @@ class TestGuard(unittest.TestCase):
     def test_selftest_skipped_without_other_addresses(self):
         runner = FakeRunner(state_json(ad=[adapters()[1]]))
         out = self.guard(runner)
-        self.assertEqual(len(runner.calls), 1)
+        self.assertEqual(runner.kinds, ['full'])
         self.assertIn('uebersprungen', out)
 
     def test_enforce_off_and_empty_patterns_only_warn(self):
@@ -325,12 +429,7 @@ class TestGuard(unittest.TestCase):
 
 class TestConfig(unittest.TestCase):
     def write(self, extra):
-        text = Path(g.__file__).with_name('config.default.toml').read_text(encoding='utf-8')
-        directory = tempfile.TemporaryDirectory()
-        self.addCleanup(directory.cleanup)
-        path = Path(directory.name) / 'config.toml'
-        path.write_text(extra(text), encoding='utf-8')
-        return path
+        return write_config(self, extra)
 
     def test_adapter_patterns_validated(self):
         self.assertEqual(CONFIG['vpn_adapter_patterns'], ['Proton', 'ProTUN'])
@@ -431,15 +530,39 @@ class TestPaths(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             self.assertFalse(sc.is_reparse_or_link(Path(d)))
 
-    @unittest.skipUnless(sys.platform != 'win32', 'Symlink-Test nur wo Symlinks ohne Sonderrechte gehen')
     def test_symlinked_storage_refused(self):
         with tempfile.TemporaryDirectory() as d:
             real = Path(d) / 'real'
             real.mkdir()
-            (Path(d) / 'link').symlink_to(real, target_is_directory=True)
+            try:
+                (Path(d) / 'link').symlink_to(real, target_is_directory=True)
+            except OSError:
+                self.skipTest('Symlinks nicht erlaubt (unter Windows Entwicklermodus/Adminrecht noetig)')
             with self.assertRaises(g.Failure) as caught:
                 g.Store(Path(d) / 'link' / 'x')
             self.assertEqual(caught.exception.ident, 'STORAGE_SYMLINK')
+
+    @unittest.skipUnless(sys.platform == 'win32', 'Junctions gibt es nur unter Windows')
+    def test_junction_storage_refused(self):
+        """Junction (mklink /J, ohne Sonderrechte) im Speicherpfad wird wie ein Symlink abgelehnt."""
+        import subprocess
+        with tempfile.TemporaryDirectory() as d:
+            real = Path(d) / 'real'
+            real.mkdir()
+            link = Path(d) / 'junction'
+            r = subprocess.run([os.path.join(sc.SYSTEM32, 'cmd.exe'), '/d', '/c', 'mklink', '/J', str(link), str(real)],
+                               capture_output=True, stdin=subprocess.DEVNULL)
+            if r.returncode != 0 or not link.exists():
+                self.skipTest('mklink /J nicht moeglich')
+            try:
+                self.assertTrue(sc.is_reparse_or_link(link))
+                for target in (link, link / 'x'):
+                    with self.assertRaises(g.Failure) as caught:
+                        g.Store(target)
+                    self.assertEqual(caught.exception.ident, 'STORAGE_SYMLINK')
+                self.assertEqual(list(real.iterdir()), [])   # nichts durch die Junction angelegt
+            finally:
+                os.rmdir(link)   # entfernt nur die Junction, nicht das Ziel
 
 
 if __name__ == '__main__':

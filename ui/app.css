@@ -52,7 +52,7 @@ body {
 }
 h1, h2 { margin: 0; font-weight: 600; }
 h1 { font-size: 22px; letter-spacing: -.01em; }
-h2 { font-size: 15px; display: inline; }
+h2 { font-size: 15px; display: inline; color: var(--text); }
 .sub { margin: 0; color: var(--muted); font-size: 13px; }
 .muted { color: var(--muted); }
 .small { font-size: 13px; }
@@ -84,42 +84,30 @@ h2 { font-size: 15px; display: inline; }
 .banner.warn { background: var(--warn-bg); color: var(--warn); }
 
 /* Abschnitte ohne Rahmen: nur Abstand und Ueberschrift gliedern. */
-/* Trennung nur durch Weissraum und praegnante Ueberschriften - keine Linien, keine Kaesten. */
 .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 52px 56px; margin-top: 16px; }
 .card { min-width: 0; }
-.card .card-head { margin-bottom: 14px; }
 .count { margin-left: 8px; font-size: 12px; font-weight: 400; color: var(--muted); font-variant-numeric: tabular-nums; }
 .count[hidden] { display: none; }
 
-/* Sicherheit als ruhige Statusliste im Hintergrund; Probleme (rot) fallen trotzdem auf. */
-.quiet .checks li { grid-template-columns: 8px 104px 1fr auto; gap: 10px; padding: 3px 0; border-top: none; font-size: 13px; align-items: center; }
-.quiet .dot { width: 7px; height: 7px; }
-.quiet .check-name { font-weight: 400; color: var(--muted); }
-.quiet .check-detail { color: var(--muted); opacity: .85; }
-.quiet .check-time { font-size: 11.5px; opacity: .7; }
-.quiet #last-check { font-size: 12px; opacity: .8; margin-top: 10px; }
-.quiet .checks li.problem .check-name, .quiet .checks li.problem .check-detail { color: var(--bad); opacity: 1; }
-h2 { font-size: 15px; font-weight: 600; color: var(--text); }
 .card.wide { grid-column: 1 / -1; }
 .head-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 .queue-total { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .queue-total[hidden] { display: none; }
-.card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; min-height: 32px; }
+.card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; min-height: 32px; }
 
+/* Sicherheit als ruhige Statusliste im Hintergrund; Probleme (rot) fallen trotzdem auf. */
 .checks { list-style: none; margin: 0 0 8px; padding: 0; }
-.checks li {
-  display: grid; grid-template-columns: 14px 120px 1fr auto; align-items: baseline; gap: 10px;
-  padding: 7px 0; border-top: 1px solid var(--line); font-size: 14px;
-}
-.checks li:first-child { border-top: none; }
-.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--unknown); align-self: center; }
+.checks li { display: grid; grid-template-columns: 8px 104px 1fr auto; align-items: center; gap: 10px; padding: 3px 0; font-size: 13px; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--unknown); align-self: center; }
 .dot.good { background: var(--good); }
 .dot.bad { background: var(--bad); }
 .dot.warn { background: var(--warn); }
 .dot.stale { opacity: .45; }
-.check-name { font-weight: 600; }
-.check-detail { color: var(--muted); overflow-wrap: anywhere; }
-.check-time { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.check-name { font-weight: 400; color: var(--muted); }
+.check-detail { color: var(--muted); opacity: .85; overflow-wrap: anywhere; }
+.check-time { color: var(--muted); font-size: 11.5px; opacity: .7; font-variant-numeric: tabular-nums; }
+.checks li.problem .check-name, .checks li.problem .check-detail { color: var(--bad); opacity: 1; }
+#last-check { font-size: 12px; opacity: .8; margin-top: 10px; }
 
 .field { display: block; margin-bottom: 10px; }
 .field > span { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
@@ -225,6 +213,7 @@ details[open] summary::before { content: "▾ "; }
   body { padding: 14px 16px 24px; }
   .grid { grid-template-columns: minmax(0, 1fr); }
   .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .checks li { grid-template-columns: 14px 96px 1fr; }
+  /* Schmal: Uhrzeit in eigener Zeile unter dem Befund. */
+  .checks li { grid-template-columns: 8px 96px 1fr; }
   .check-time { grid-column: 3; }
 }

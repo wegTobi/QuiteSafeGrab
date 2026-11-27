@@ -1,30 +1,21 @@
 # SPDX-License-Identifier: GPL-3.0-only
-"""Plattformabhaengige Bausteine (Windows und POSIX) fuer Quite Safe Grab.
-
-Der Kern (grab.py) bleibt plattformneutral; alles, was sich zwischen Windows
-und Linux unterscheidet, steht hier: Dateisperren, Prozessbaum beenden,
-Verknuepfungs-/Reparse-Point-Erkennung, atomares Veroeffentlichen ohne
-Ueberschreiben und reservierte Windows-Dateinamen.
+"""Windows-Bausteine fuer Quite Safe Grab (das Programm startet nur unter Windows; die Pi-Fassung
+liegt in pi-grab-master): Dateisperren, Prozessbaum beenden, Verknuepfungs-/Reparse-Point-Erkennung,
+atomares Veroeffentlichen ohne Ueberschreiben und reservierte Windows-Dateinamen.
 """
+import ctypes
+from ctypes import wintypes
 import errno
+import msvcrt
 import os
 from pathlib import Path
 import subprocess
 import sys
 import time
 
-IS_WIN = os.name == 'nt'
-
-if IS_WIN:
-    import ctypes
-    from ctypes import wintypes
-    import msvcrt
-else:
-    import fcntl
-    import signal
-
 FILE_ATTRIBUTE_REPARSE_POINT = 0x400
 CREATE_NO_WINDOW = 0x08000000
+SYSTEM32 = Path(os.environ.get('SystemRoot', r'C:\Windows')) / 'System32'
 
 # --- reservierte Windows-Namen (gelten auf jedem System, damit Ergebnisse portabel bleiben)
 RESERVED_NAMES = {'CON', 'PRN', 'AUX', 'NUL', 'CONIN$', 'CONOUT$'}
@@ -45,10 +36,9 @@ def real_exe():
     in einem venv, startet dessen Starter das Basis-python.exe als Kindprozess; sys.executable zeigt
     dann auf den Starter, die Firewall sieht aber das Basis-python.exe - deshalb hier das echte Image.
     """
-    if IS_WIN:
-        buffer = ctypes.create_unicode_buffer(32768)
-        if ctypes.windll.kernel32.GetModuleFileNameW(None, buffer, len(buffer)):
-            return buffer.value
+    buffer = ctypes.create_unicode_buffer(32768)
+    if ctypes.windll.kernel32.GetModuleFileNameW(None, buffer, len(buffer)):
+        return buffer.value
     return sys.executable
 
 
@@ -67,174 +57,135 @@ def locked_file(path):
     """Exklusive, nicht blockierende Sperre auf eine Datei; Konflikt -> BlockingIOError."""
     if os.path.islink(path):
         raise OSError(errno.ELOOP, 'Verknuepfung als Sperrdatei')
-    if IS_WIN:
-        fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_BINARY, 0o600)
-        try:
-            msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
-        except OSError as exc:
-            os.close(fd)
-            raise BlockingIOError(str(exc)) from exc
-        except BaseException:
-            os.close(fd)
-            raise
-        return os.fdopen(fd, 'r+b', buffering=0)
-    fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
-    file = os.fdopen(fd, 'r+b', buffering=0)
+    fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_BINARY, 0o600)
     try:
-        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        return file
+        msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+    except OSError as exc:
+        os.close(fd)
+        raise BlockingIOError(str(exc)) from exc
     except BaseException:
-        file.close()
+        os.close(fd)
         raise
+    return os.fdopen(fd, 'r+b', buffering=0)
 
 
 # --- Veroeffentlichen ohne Ueberschreiben
 def move_noreplace(source, target, retries=10):
     """Verschiebt source nach target, scheitert mit FileExistsError statt zu ueberschreiben.
 
-    Windows: os.rename ueberschreibt nie und ist auf NTFS atomar. Virenscanner
+    os.rename ueberschreibt unter Windows nie und ist auf NTFS atomar. Virenscanner
     halten frisch geschriebene Dateien kurz fest (PermissionError): wenige Wiederholungen.
-    POSIX: Hardlink ohne Ersetzen, danach Quelle entfernen.
+    Ein Verzeichnis-fsync danach ist unter Windows nicht moeglich und nicht noetig (NTFS-Journal).
     """
-    if IS_WIN:
-        for attempt in range(retries):
-            try:
-                os.rename(source, target)
-                return
-            except PermissionError:
-                if Path(target).exists():
-                    raise FileExistsError(errno.EEXIST, 'Ziel existiert', str(target))
-                if attempt == retries - 1:
-                    raise
-                time.sleep(0.3)
-    else:
-        os.link(source, target, follow_symlinks=False)
-        os.unlink(source)
-
-
-def fsync_dir(path):
-    """Verzeichnis-fsync; unter Windows nicht moeglich und nicht noetig (NTFS-Journal)."""
-    if IS_WIN:
-        return
-    fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
-    try:
-        os.fsync(fd)
-    finally:
-        os.close(fd)
+    for attempt in range(retries):
+        try:
+            os.rename(source, target)
+            return
+        except PermissionError:
+            if Path(target).exists():
+                raise FileExistsError(errno.EEXIST, 'Ziel existiert', str(target))
+            if attempt == retries - 1:
+                raise
+            time.sleep(0.3)
 
 
 # --- Prozessbaum
-if IS_WIN:
-    class _IoCounters(ctypes.Structure):
-        _fields_ = [(n, ctypes.c_ulonglong) for n in (
-            'ReadOperationCount', 'WriteOperationCount', 'OtherOperationCount',
-            'ReadTransferCount', 'WriteTransferCount', 'OtherTransferCount')]
+class _IoCounters(ctypes.Structure):
+    _fields_ = [(n, ctypes.c_ulonglong) for n in (
+        'ReadOperationCount', 'WriteOperationCount', 'OtherOperationCount',
+        'ReadTransferCount', 'WriteTransferCount', 'OtherTransferCount')]
 
-    class _BasicLimits(ctypes.Structure):
-        _fields_ = [('PerProcessUserTimeLimit', ctypes.c_int64), ('PerJobUserTimeLimit', ctypes.c_int64),
-                    ('LimitFlags', wintypes.DWORD), ('MinimumWorkingSetSize', ctypes.c_size_t),
-                    ('MaximumWorkingSetSize', ctypes.c_size_t), ('ActiveProcessLimit', wintypes.DWORD),
-                    ('Affinity', ctypes.c_size_t), ('PriorityClass', wintypes.DWORD),
-                    ('SchedulingClass', wintypes.DWORD)]
 
-    class _ExtendedLimits(ctypes.Structure):
-        _fields_ = [('BasicLimitInformation', _BasicLimits), ('IoInfo', _IoCounters),
-                    ('ProcessMemoryLimit', ctypes.c_size_t), ('JobMemoryLimit', ctypes.c_size_t),
-                    ('PeakProcessMemoryUsed', ctypes.c_size_t), ('PeakJobMemoryUsed', ctypes.c_size_t)]
+class _BasicLimits(ctypes.Structure):
+    _fields_ = [('PerProcessUserTimeLimit', ctypes.c_int64), ('PerJobUserTimeLimit', ctypes.c_int64),
+                ('LimitFlags', wintypes.DWORD), ('MinimumWorkingSetSize', ctypes.c_size_t),
+                ('MaximumWorkingSetSize', ctypes.c_size_t), ('ActiveProcessLimit', wintypes.DWORD),
+                ('Affinity', ctypes.c_size_t), ('PriorityClass', wintypes.DWORD),
+                ('SchedulingClass', wintypes.DWORD)]
 
-    _k32 = ctypes.WinDLL('kernel32', use_last_error=True)
-    _k32.CreateJobObjectW.restype = wintypes.HANDLE
-    _k32.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
-    _k32.SetInformationJobObject.restype = wintypes.BOOL
-    _k32.SetInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
-    _k32.AssignProcessToJobObject.restype = wintypes.BOOL
-    _k32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
-    _k32.TerminateJobObject.restype = wintypes.BOOL
-    _k32.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
-    _k32.CloseHandle.restype = wintypes.BOOL
-    _k32.CloseHandle.argtypes = [wintypes.HANDLE]
-    _JOB_OBJECT_EXTENDED_LIMIT_INFORMATION = 9
-    _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000
+
+class _ExtendedLimits(ctypes.Structure):
+    _fields_ = [('BasicLimitInformation', _BasicLimits), ('IoInfo', _IoCounters),
+                ('ProcessMemoryLimit', ctypes.c_size_t), ('JobMemoryLimit', ctypes.c_size_t),
+                ('PeakProcessMemoryUsed', ctypes.c_size_t), ('PeakJobMemoryUsed', ctypes.c_size_t)]
+
+
+_k32 = ctypes.WinDLL('kernel32', use_last_error=True)
+_k32.CreateJobObjectW.restype = wintypes.HANDLE
+_k32.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
+_k32.SetInformationJobObject.restype = wintypes.BOOL
+_k32.SetInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+_k32.AssignProcessToJobObject.restype = wintypes.BOOL
+_k32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+_k32.TerminateJobObject.restype = wintypes.BOOL
+_k32.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
+_k32.CloseHandle.restype = wintypes.BOOL
+_k32.CloseHandle.argtypes = [wintypes.HANDLE]
+_JOB_OBJECT_EXTENDED_LIMIT_INFORMATION = 9
+_JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000
 
 
 def popen_kwargs():
-    """Zusatzargumente fuer subprocess.Popen: eigene Prozessgruppe bzw. kein Konsolenfenster."""
-    if IS_WIN:
-        return {'creationflags': CREATE_NO_WINDOW}
-    return {'start_new_session': True}
+    """Zusatzargumente fuer subprocess.Popen: kein Konsolenfenster."""
+    return {'creationflags': CREATE_NO_WINDOW}
 
 
 class ProcessTree:
     """Beendet einen Prozess samt aller Nachkommen.
 
-    Windows: Job-Objekt mit KILL_ON_JOB_CLOSE; scheitert die Einrichtung, bleibt
-    taskkill /T als Ausweichweg. POSIX: Prozessgruppe.
+    Job-Objekt mit KILL_ON_JOB_CLOSE; scheitert die Einrichtung, bleibt
+    taskkill /T als Ausweichweg.
     """
 
     def __init__(self, proc):
         self.proc = proc
         self.job = None
-        if IS_WIN:
-            try:
-                job = _k32.CreateJobObjectW(None, None)
-                if not job:
-                    raise OSError('CreateJobObject')
-                info = _ExtendedLimits()
-                info.BasicLimitInformation.LimitFlags = _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
-                if not _k32.SetInformationJobObject(job, _JOB_OBJECT_EXTENDED_LIMIT_INFORMATION,
-                                                    ctypes.byref(info), ctypes.sizeof(info)):
-                    raise OSError('SetInformationJobObject')
-                if not _k32.AssignProcessToJobObject(job, int(proc._handle)):
-                    raise OSError('AssignProcessToJobObject')
-                self.job = job
-            except (OSError, AttributeError):
-                if 'job' in locals() and job:
-                    _k32.CloseHandle(job)
-                self.job = None
+        try:
+            job = _k32.CreateJobObjectW(None, None)
+            if not job:
+                raise OSError('CreateJobObject')
+            info = _ExtendedLimits()
+            info.BasicLimitInformation.LimitFlags = _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+            if not _k32.SetInformationJobObject(job, _JOB_OBJECT_EXTENDED_LIMIT_INFORMATION,
+                                                ctypes.byref(info), ctypes.sizeof(info)):
+                raise OSError('SetInformationJobObject')
+            if not _k32.AssignProcessToJobObject(job, int(proc._handle)):
+                raise OSError('AssignProcessToJobObject')
+            self.job = job
+        except (OSError, AttributeError):
+            if 'job' in locals() and job:
+                _k32.CloseHandle(job)
+            self.job = None
 
     def kill(self):
-        if IS_WIN:
-            if self.job:
-                _k32.TerminateJobObject(self.job, 1)
-            else:
-                root = os.environ.get('SystemRoot', r'C:\Windows')
-                try:
-                    subprocess.run([os.path.join(root, 'System32', 'taskkill.exe'), '/T', '/F', '/PID', str(self.proc.pid)],
-                                   stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                   timeout=15, creationflags=CREATE_NO_WINDOW)
-                except (OSError, subprocess.SubprocessError):
-                    pass
+        if self.job:
+            _k32.TerminateJobObject(self.job, 1)
         else:
             try:
-                os.killpg(self.proc.pid, signal.SIGKILL)
-            except ProcessLookupError:
+                subprocess.run([str(SYSTEM32 / 'taskkill.exe'), '/T', '/F', '/PID', str(self.proc.pid)],
+                               stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                               timeout=15, creationflags=CREATE_NO_WINDOW)
+            except (OSError, subprocess.SubprocessError):
                 pass
 
     def close(self):
         """Beendet Nachkommen, die den Hauptprozess ueberlebt haben, und gibt das Handle frei."""
         self.kill()
-        if IS_WIN and self.job:
+        if self.job:
             _k32.CloseHandle(self.job)
             self.job = None
 
 
 def child_env(workdir=None):
     """Enge Umgebung fuer Kindprozesse: keine Proxy-/Python-/Konfigurationsvariablen."""
-    if IS_WIN:
-        keep = ('SYSTEMROOT', 'SYSTEMDRIVE', 'WINDIR', 'COMSPEC', 'PATHEXT', 'TEMP', 'TMP', 'NUMBER_OF_PROCESSORS',
-                'PROCESSOR_ARCHITECTURE')
-        env = {k.upper(): v for k, v in os.environ.items() if k.upper() in keep}
-        root = env.get('SYSTEMROOT', r'C:\Windows')
-        env['PATH'] = os.path.join(root, 'System32') + os.pathsep + root
-    else:
-        keep = ('HOME', 'USER', 'LOGNAME', 'LANG', 'LC_ALL')
-        env = {k: v for k, v in os.environ.items() if k in keep}
-        env['PATH'] = '/usr/sbin:/usr/bin:/sbin:/bin'
+    keep = ('SYSTEMROOT', 'SYSTEMDRIVE', 'WINDIR', 'COMSPEC', 'PATHEXT', 'TEMP', 'TMP', 'NUMBER_OF_PROCESSORS',
+            'PROCESSOR_ARCHITECTURE')
+    env = {k.upper(): v for k, v in os.environ.items() if k.upper() in keep}
+    root = env.get('SYSTEMROOT', r'C:\Windows')
+    env['PATH'] = os.path.join(root, 'System32') + os.pathsep + root
     env.update(YTDLP_NO_PLUGINS='1', PYTHONNOUSERSITE='1', PYTHONDONTWRITEBYTECODE='1',
                PYTHONUTF8='1', PYTHONIOENCODING='utf-8')
     if workdir:
         workdir = Path(workdir)
         env.update(TMPDIR=str(workdir), TMP=str(workdir), TEMP=str(workdir))
-        if not IS_WIN:
-            env.update(XDG_CACHE_HOME=str(workdir / 'cache'), XDG_CONFIG_HOME=str(workdir / 'config'))
     return env

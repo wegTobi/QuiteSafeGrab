@@ -1,6 +1,6 @@
 # Baut das Release-ZIP fuer GitHub aus den von Git verwalteten Dateien (nur fuer den Entwickler).
 #   powershell -ExecutionPolicy Bypass -File .\make-release.ps1          (Version aus der Datei VERSION)
-# Lokale Dateien (config.toml, python\, lib\, tools\, venv\, Downloads, Arbeitsordner) kommen nie hinein.
+# Lokale Dateien (config.toml, python\, lib\, tools\, Downloads, Arbeitsordner) kommen nie hinein.
 # Vor dem Packen wird jede Textdatei nach persoenlichen Angaben dieses PCs durchsucht
 # (Benutzername und seine Teile, Profilpfad, Rechnername, lokale IPv4-Adressen, Git-E-Mail
 # sowie alles aus -Forbid). Ein Treffer bricht ab.
@@ -35,14 +35,23 @@ foreach ($f in @(git ls-files)) {
 $needles = New-Object System.Collections.Generic.List[string]
 foreach ($n in @($env:USERNAME, $env:USERPROFILE, $env:COMPUTERNAME) + $Forbid) { if ($n) { $needles.Add($n) } }
 foreach ($part in ($env:USERNAME -split '[\s._-]+')) { if ($part.Length -ge 4) { $needles.Add($part) } }
-try { $mail = (& git config --global user.email 2>$null); if ($mail) { $needles.Add($mail.Trim()) } } catch {}
+# Scheitert eine dieser Abfragen, bricht das Skript ab: ein Scan mit weniger Begriffen faellt sonst niemandem auf.
+# git config: Exit 0 = gesetzt, 1 = nicht gesetzt, alles andere = Fehler.
+$mails = @()
+foreach ($scope in @(@('--global'), @())) {
+  try { $mail = @(& git config @scope user.email 2>$null); $code = $LASTEXITCODE } catch { throw "Git-E-Mail nicht lesbar - Suche nach persoenlichen Angaben unvollstaendig, nichts gepackt." }
+  if ($code -ne 0 -and $code -ne 1) { throw "Git-E-Mail nicht lesbar (git config, Exitcode $code) - nichts gepackt." }
+  foreach ($m in $mail) { if ("$m".Trim()) { $mails += "$m".Trim() } }
+}
+if (-not $mails) { throw 'Keine Git-E-Mail gefunden (git config user.email) - Suche waere unvollstaendig, nichts gepackt.' }
+foreach ($m in $mails) { $needles.Add($m) }
 try {
   # VPN-Tunneladressen vergibt der Anbieter fuer alle Nutzer gleich (Proton: 10.2.0.2) - nicht persoenlich.
   $vpnAliases = @(Get-NetAdapter -ErrorAction Stop | Where-Object { "$($_.Name) $($_.InterfaceDescription)" -match 'Proton|ProTUN|WireGuard|Wintun|TAP-Windows|OpenVPN' } | ForEach-Object { $_.Name })
   Get-NetIPAddress -AddressFamily IPv4 -ErrorAction Stop |
     Where-Object { $_.IPAddress -notmatch '^(127\.|169\.254\.)' -and $vpnAliases -notcontains $_.InterfaceAlias } |
     ForEach-Object { $needles.Add($_.IPAddress) }
-} catch {}
+} catch { throw "Lokale IPv4-Adressen nicht lesbar - Suche nach persoenlichen Angaben unvollstaendig, nichts gepackt. ($($_.Exception.Message))" }
 $hits = @()
 foreach ($f in $files) {
   if ($f.EndsWith('.whl')) { continue }   # Wheels sind per SHA256 an PyPI gebunden
@@ -57,6 +66,14 @@ if ($hits) { $hits | ForEach-Object { Write-Host "  $_" }; throw 'Persoenliche A
 $lfOnly = @($files | Where-Object { $_ -match '\.(cmd|ps1)$' } | Where-Object {
   [IO.File]::ReadAllText((Join-Path $PSScriptRoot $_)) -match "(?<!`r)`n" })
 if ($lfOnly) { throw "Ohne CRLF-Zeilenenden: $($lfOnly -join ', ') (git rm --cached -r . ; git reset --hard)" }
+
+# ---- PowerShell 5.1 liest .ps1 ohne BOM als ANSI: Umlaute wuerden verfaelscht. Nicht-ASCII nur mit UTF-8-BOM.
+$latin1 = [Text.Encoding]::GetEncoding(28591)   # Byte fuer Byte, damit jedes Byte >= 0x80 sichtbar wird
+$noBom = @($files | Where-Object { $_ -match '\.ps1$' } | Where-Object {
+  $bytes = [IO.File]::ReadAllBytes((Join-Path $PSScriptRoot $_))
+  $hasBom = $bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF
+  (-not $hasBom) -and ($latin1.GetString($bytes) -match '[^\x00-\x7F]') })
+if ($noBom) { throw "Nicht-ASCII ohne UTF-8-BOM (PowerShell 5.1 liest das falsch): $($noBom -join ', ')" }
 
 # ---- Packen
 $name = "QuiteSafeGrab-Windows-$Version"

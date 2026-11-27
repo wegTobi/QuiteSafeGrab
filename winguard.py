@@ -1,10 +1,9 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """Windows-Netzsperre fuer Quite Safe Grab: Firewallregeln nach Quelladresse (reine Logik, ohne Systemzugriff).
 
-Idee (Gegenstueck zum Linux-Namespace): Fuer jedes Programm des Downloaders (Python, FFmpeg,
-ffprobe, curl, nslookup) blockiert eine ausgehende Regel jeden Verkehr, dessen *Quelladresse*
-nicht die VPN-Adresse (oder Loopback) ist. Faellt der Tunnel aus oder tauchen neue Adapter auf,
-waehlt Windows eine andere Quelladresse - und die Verbindung wird blockiert (WSAEACCES), statt
+Idee (Gegenstueck zum Linux-Namespace): Fuer jedes Programm des Downloaders (guard_programs)
+blockiert eine ausgehende Regel jeden Verkehr, dessen *Quelladresse* nicht die VPN-Adresse
+(oder Loopback) ist. Faellt der Tunnel aus oder tauchen neue Adapter auf, waehlt Windows eine andere Quelladresse - und die Verbindung wird blockiert (WSAEACCES), statt
 ungeschuetzt hinauszugehen. IPv6 wird fuer diese Programme vollstaendig blockiert.
 
 Dieses Modul erzeugt und prueft nur Daten. Wirksam wird die Sperre erst durch die Regeln,
@@ -16,18 +15,31 @@ import json
 import ntpath
 import re
 
+import syscompat as sc
+
 GROUP = 'QuiteSafeGrab'
 DISPLAY_NAME = 'Quite Safe Grab'
 RULE_PREFIX = 'QuiteSafeGrab-'
 LEGACY_RULE_PREFIXES = ('PiGrab-',)   # Name vor der Umbenennung - wird bei apply/remove mit entfernt
-WSAEACCES = 10013
 MAX4 = 2 ** 32 - 1
 MAX6 = 2 ** 128 - 1
 LOOPBACK4 = (int(ipaddress.IPv4Address('127.0.0.0')), int(ipaddress.IPv4Address('127.255.255.255')))
 V6_ENTRIES = ['::/1', '8000::/1']
 
-# Eine Abfrage liefert Adapter (mit IPv4), QuiteSafeGrab-Regeln und Firewall-Profile als JSON.
-STATE_SCRIPT = r"""
+# Systemprogramme mit festem Pfad (nie ueber PATH): curl/nslookup sind selbst durch die Netzsperre geschuetzt.
+SYSTEM32 = sc.SYSTEM32
+POWERSHELL = str(SYSTEM32 / 'WindowsPowerShell' / 'v1.0' / 'powershell.exe')
+CURL = str(SYSTEM32 / 'curl.exe')
+NSLOOKUP = str(SYSTEM32 / 'nslookup.exe')
+
+
+def guard_programs(python_exe, ffmpeg, ffprobe):
+    """Alle Programme, die der Downloader mit Netzwerkzugriff startet - fuer jedes gilt die Sperrregel."""
+    return [python_exe, ffmpeg, ffprobe, CURL, NSLOOKUP]
+
+
+# Adapter-Block und Regel-Block sind getrennt, damit die schnelle Abfrage genau den Adapter-Block nutzt.
+_ADAPTER_BLOCK = r"""
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
 $adapters = @(Get-NetAdapter | Where-Object { $_.Status -eq 'Up' } | ForEach-Object {
@@ -35,9 +47,10 @@ $adapters = @(Get-NetAdapter | Where-Object { $_.Status -eq 'Up' } | ForEach-Obj
     IPv4 = @(Get-NetIPAddress -InterfaceIndex $_.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue | ForEach-Object { [string]$_.IPAddress });
     IPv4Unbound = @(Get-NetIPAddress -InterfaceIndex $_.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue |
       Where-Object { @('Tentative', 'Duplicate', 'Invalid') -contains [string]$_.AddressState } | ForEach-Object { [string]$_.IPAddress }) } })
-$rules = @(); $rulesError = ''
+"""
+_RULES_BLOCK = r"""$rules = @(); $rulesError = ''
 try {
-  $rules = @(Get-NetFirewallRule -Name 'QuiteSafeGrab-*' -ErrorAction Stop | ForEach-Object {
+  $rules = @(Get-NetFirewallRule -Name '""" + RULE_PREFIX + r"""*' -ErrorAction Stop | ForEach-Object {
     $a = $_ | Get-NetFirewallAddressFilter; $p = $_ | Get-NetFirewallApplicationFilter
     [pscustomobject]@{ Name = [string]$_.Name; Enabled = [string]$_.Enabled; Direction = [string]$_.Direction;
       Action = [string]$_.Action; Program = [string]$p.Program;
@@ -46,22 +59,49 @@ try {
   if ($_.FullyQualifiedErrorId -notlike '*NotFound*') { $rulesError = [string]$_.Exception.Message }
 }
 $profiles = @(Get-NetFirewallProfile | ForEach-Object { [pscustomobject]@{ Name = [string]$_.Name; Enabled = [string]$_.Enabled } })
-[pscustomobject]@{ Adapters = $adapters; Rules = $rules; Profiles = $profiles; RulesError = $rulesError } | ConvertTo-Json -Compress -Depth 6
 """
+STATE_SCRIPT = (_ADAPTER_BLOCK + _RULES_BLOCK
+                + "[pscustomobject]@{ Adapters = $adapters; Rules = $rules; Profiles = $profiles; RulesError = $rulesError } | ConvertTo-Json -Compress -Depth 6\n")
 
 # Schnelle Abfrage (~2 s statt ~13 s): nur Adapter und ihre IPv4-Adressen, ohne Firewallregeln.
 # Wird nur benutzt, nachdem in DIESEM Lauf die volle Pruefung (Regeln + Selbsttest) bestanden ist.
-QUICK_STATE_SCRIPT = (STATE_SCRIPT.split('$rules = @()')[0]
-                      + "[pscustomobject]@{ Adapters = $adapters } | ConvertTo-Json -Compress -Depth 6\n")
+QUICK_STATE_SCRIPT = _ADAPTER_BLOCK + "[pscustomobject]@{ Adapters = $adapters } | ConvertTo-Json -Compress -Depth 6\n"
+
+QUERY_TIMEOUT = 60
+
+
+class QueryFailed(Exception):
+    """PowerShell-Abfrage ohne Exitcode 0 oder mit Zeitueberschreitung; err = Fehlerausgabe."""
+    def __init__(self, err=''):
+        super().__init__(err)
+        self.err = err
+
+
+class QueryInvalid(Exception):
+    """Abfrage lief, ihre Ausgabe ist aber nicht auswertbar (Text aus parse_state)."""
+
+
+def query_state(run, script=STATE_SCRIPT):
+    """Adapter-/Firewallzustand abfragen. run(argv, timeout) -> (code, out, err, timed_out).
+    Fehler: QueryFailed oder QueryInvalid - der Aufrufer bricht ab, nie ein ungeschuetzter Fallback."""
+    code, out, err, timed_out = run([POWERSHELL] + powershell_args(script), QUERY_TIMEOUT)
+    if code != 0 or timed_out:
+        raise QueryFailed(err)
+    try:
+        return parse_state(out)
+    except ValueError as exc:
+        raise QueryInvalid(str(exc)) from exc
+
 
 # Laeuft im geschuetzten Python: von jeder NICHT-VPN-Adresse aus muss connect() sofort an der Firewall scheitern.
 # 192.0.2.1 (TEST-NET-1, RFC 5737) ist nirgends routbar; es wird kein Dritter kontaktiert.
 # Als sicher gelten nur: BLOCKED (10013, Firewall), NOADDR (10049, Adresse nicht als Absender nutzbar)
 # und NOROUTE (10051/10065, von dieser Adresse kein Weg ins Netz - Windows sendet kein Paket).
 # Alles andere (Timeout, Verbindungsaufbau, unbekannte Fehler) bleibt OPEN und stoppt das Tool.
+SELFTEST_CODES = {10013: 'BLOCKED', 10049: 'NOADDR', 10051: 'NOROUTE', 10065: 'NOROUTE'}
 SELFTEST_CODE = r"""
 import socket, sys
-SAFE = {10013: 'BLOCKED', 10049: 'NOADDR', 10051: 'NOROUTE', 10065: 'NOROUTE'}
+SAFE = """ + repr(SELFTEST_CODES) + r"""
 for ip in sys.argv[1:]:
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.settimeout(3)
@@ -76,7 +116,7 @@ for ip in sys.argv[1:]:
     finally:
         s.close()
 """
-SELFTEST_SAFE = ('BLOCKED', 'NOADDR', 'NOROUTE')
+SELFTEST_SAFE = tuple(dict.fromkeys(SELFTEST_CODES.values()))
 
 
 def as_list(value):
@@ -159,7 +199,6 @@ def other_ipv4(state, patterns):
     return sorted(found)
 
 
-# --- Adressbereiche
 def blocked_v4_ranges(vpn_ips):
     """Alles ausser Loopback und den VPN-Adressen: Liste (lo, hi)."""
     holes = [LOOPBACK4]
@@ -269,7 +308,6 @@ def parse_selftest(output, ips):
     return [ip for ip in ips if result.get(ip) not in SELFTEST_SAFE]
 
 
-# --- Regeln anlegen (Administrator) - als PowerShell-Skript aus validierten Daten
 def ps_quote(text):
     if re.search(r'[\x00-\x1f]', text):
         raise ValueError('Steuerzeichen in Pfad')
@@ -277,7 +315,6 @@ def ps_quote(text):
 
 
 def _remove_lines():
-    # Eigene Regeln und solche aus Versionen vor der Umbenennung (PiGrab-*) entfernen.
     return [f"Get-NetFirewallRule -Name '{p}*' -ErrorAction SilentlyContinue | Remove-NetFirewallRule"
             for p in (RULE_PREFIX,) + LEGACY_RULE_PREFIXES]
 

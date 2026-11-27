@@ -3,9 +3,9 @@
 #
 # Am einfachsten: Doppelklick auf "!Einrichten.cmd".
 #
-# Erster Lauf:  lädt Python und FFmpeg (feste Adressen + SHA256), fragt Land, Internetanbieter,
-#               VPN, Browser und Speicherort ab, schreibt config.toml, legt auf Wunsch die
-#               Netzsperre und eine Desktop-Verknüpfung an und sagt, was man startet.
+# Erster Lauf:  lädt Python und FFmpeg (feste Adressen + SHA256), fragt Heimatland und Speicherort
+#               ab (das VPN nur, wenn kein Proton VPN erkannt wird), schreibt config.toml, legt auf
+#               Wunsch die Netzsperre und eine Desktop-Verknüpfung an und sagt, was man startet.
 # Später:       erkennt die fertige Einrichtung, fragt nichts erneut (außer gewünscht), sucht
 #               auf Wunsch eine neue Quite-Safe-Grab-Version auf GitHub, erneuert Python, FFmpeg
 #               und Abhängigkeiten nur bei neuerer Vorgabe und prüft die Netzsperre.
@@ -32,7 +32,7 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 
 # ---- Feste Quellen (bei einem Update: Version, Adresse und Prüfsumme gemeinsam ändern)
 $PY_VERSION = '3.14.10'
-$PY_TAG = 'python314'
+$PY_TAG = 'python' + ((($PY_VERSION -split '\.')[0..1]) -join '')   # 3.14.10 -> python314 (Name von ._pth und .zip)
 $PY_SOURCES = @{
   'amd64' = @{ Url = "https://www.python.org/ftp/python/$PY_VERSION/python-$PY_VERSION-embed-amd64.zip"; Sha256 = '90905e64a840557d8c1bc4f5b74db3d7ee85e3ffb217611cac1c7813acea4159' }
   'arm64' = @{ Url = "https://www.python.org/ftp/python/$PY_VERSION/python-$PY_VERSION-embed-arm64.zip"; Sha256 = 'bbe116bb1248820359cbf25127ac5c7794ea161869d83686cfbc9a45203ff836' }
@@ -41,6 +41,18 @@ $FF_VERSION = '9.1'
 $FF_URL = "https://github.com/GyanD/codexffmpeg/releases/download/$FF_VERSION/ffmpeg-$FF_VERSION-essentials_build.zip"
 $FF_SHA256 = 'b9bbbb3acece000cbeec994f856649354e52c773807841e78908374b24d658fd'
 $REPO = 'wegTobi/QuiteSafeGrab'   # GitHub-Repository für die Update-Suche (Releases)
+
+# Exitcodes von "fw.py status" (dort STATUS_OK, STATUS_PROBLEM, STATUS_NO_VPN):
+#   0 = Netzsperre vollständig und passend
+#   2 = Netzsperre fehlt oder passt nicht zur VPN-Adresse (auch, wenn die Abfrage scheitert)
+#   3 = kein VPN verbunden, nicht prüfbar
+#   andere (z. B. 1) = Fehler, etwa eine ungültige config.toml
+$FW_OK = 0
+$FW_PROBLEM = 2
+$FW_NO_VPN = 3
+# "fw.py vpn" (nur lesen, für die Update-Suche): nur 0 = VPN verbunden (Abfrage gelungen, VPN-Adapter mit
+# IPv4-Adresse). 1 = config ungültig, 2 = Abfrage fehlgeschlagen, 3 = kein VPN – alles außer 0 sperrt GitHub.
+$VPN_UP = 0
 
 $app = $PSScriptRoot
 $pyDir = Join-Path $app 'python'
@@ -54,12 +66,10 @@ $appVersion = (Get-Content -LiteralPath (Join-Path $app 'VERSION') -TotalCount 1
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
 # ---------------------------------------------------------------- Hilfsfunktionen
-# Farben: alles grau, Eingaben grün, Warnungen gelb.
 function Step([string]$text) { Write-Host ''; Write-Host "== $text" -ForegroundColor Gray }
 function Info([string]$text) { Write-Host "   $text" -ForegroundColor Gray }
 function Warn([string]$text) { Write-Host "   $text" -ForegroundColor Yellow }
 function Question([string]$number, [string]$title, [string[]]$explain) {
-  # Eine Frage als eigener, abgesetzter Block.
   Write-Host ''
   Write-Host "   ----------------------------------------------------------------" -ForegroundColor DarkGray
   Write-Host "   $number  $title" -ForegroundColor Gray
@@ -103,8 +113,7 @@ function Choose([string]$question, [string[]]$options, [int]$default = 1) {
   }
 }
 
-function Save-Download([string]$url, [string]$target, [string]$what) {
-  # Download mit Fortschrittsanzeige (Prozent, MB, Geschwindigkeit) in einer Zeile.
+function Save-Download([string]$url, [string]$target) {
   $request = [Net.HttpWebRequest]::Create($url)
   $request.UserAgent = 'QuiteSafeGrab-Setup'
   $request.AllowAutoRedirect = $true
@@ -164,7 +173,7 @@ function Get-Verified([string]$url, [string]$sha, [string]$given, [string]$what)
   $part = "$path.part"
   if (Test-Path -LiteralPath $part) { Remove-Item -LiteralPath $part -Force }
   Info "Lade $what von $url"
-  Save-Download $url $part $what
+  Save-Download $url $part
   $actual = Get-Sha256 $part
   if ($actual -ne $sha) {
     Remove-Item -LiteralPath $part -Force
@@ -219,7 +228,7 @@ function Invoke-Py([string[]]$arguments, [string]$busy = '') {
     $spin = '|/-\'; $i = 0; $watch = [Diagnostics.Stopwatch]::StartNew()
     while (-not $p.HasExited) {
       Write-Host ("`r   [{0}] {1} ({2:N0} s)" -f $spin[$i % 4], $busy, $watch.Elapsed.TotalSeconds).PadRight(78) -NoNewline -ForegroundColor Gray
-      Start-Sleep -Milliseconds 150; $i++
+      $null = $p.WaitForExit(150); $i++
     }
     $p.WaitForExit()
     Write-Host ("`r" + ''.PadRight(78) + "`r") -NoNewline
@@ -234,8 +243,13 @@ function Test-Config {
 }
 
 function Get-VpnStatus {
-  # Exitcode von "fw.py status": 0 = Netzsperre passt, 2 = fehlt/passt nicht, 3 = kein VPN
+  # .Code: Exitcode von "fw.py status" ($FW_OK, $FW_PROBLEM, $FW_NO_VPN, siehe oben)
   return Invoke-Py @('-I', (Join-Path $app 'fw.py'), 'status') 'Prüfe VPN und Firewall-Regeln'
+}
+
+function Get-VpnConnected {
+  # .Code: Exitcode von "fw.py vpn" (nur $VPN_UP erlaubt Verbindungen ins Internet, siehe oben)
+  return Invoke-Py @('-I', (Join-Path $app 'fw.py'), 'vpn') 'Prüfe VPN'
 }
 
 function Get-RuleFolders {
@@ -244,7 +258,10 @@ function Get-RuleFolders {
     return @(Get-NetFirewallRule -Name 'QuiteSafeGrab-*' -ErrorAction Stop | Get-NetFirewallApplicationFilter |
       ForEach-Object { $_.Program } | Where-Object { $_ -match '\\python\\python\.exe$' } |
       ForEach-Object { Split-Path (Split-Path $_ -Parent) -Parent } | Select-Object -Unique)
-  } catch { return @() }
+  } catch {
+    Warn 'Vorhandene Firewall-Regeln nicht lesbar - ob die Netzsperre schon für eine andere Installation gilt, ist unbekannt.'
+    return @()
+  }
 }
 
 # ---------------------------------------------------------------- 1. Rechner und Stand
@@ -271,10 +288,9 @@ if ($installed -and -not $AfterUpdate -and -not $NoUpdateCheck -and -not $Offlin
   if (AskYesNo 'Auf GitHub nach einer neuen Version suchen?' $true) {
     $release = $null
     # Nur über das VPN: sonst erfährt GitHub, dass die echte Adresse Quite Safe Grab nutzt.
-    # fw.py status: 0 = Netzsperre passt, 2 = VPN da, Regeln passen nicht, 3 = kein VPN
-    $vpnCheck = Get-VpnStatus
-    if ($vpnCheck.Code -ne 0 -and $vpnCheck.Code -ne 2) {
-      Warn 'Update-Suche übersprungen: VPN nicht verbunden. Mit verbundenem VPN !Einrichten.cmd erneut starten, um nach Updates zu suchen.'
+    $vpnCheck = Get-VpnConnected
+    if ($vpnCheck.Code -ne $VPN_UP) {
+      Warn 'Update-Suche übersprungen: VPN nicht verbunden oder VPN-Prüfung nicht möglich. Mit verbundenem VPN !Einrichten.cmd erneut starten, um nach Updates zu suchen.'
     } else {
       try {
         $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$REPO/releases/latest" -UseBasicParsing -TimeoutSec 20 `
@@ -289,22 +305,28 @@ if ($installed -and -not $AfterUpdate -and -not $NoUpdateCheck -and -not $Offlin
       else {
         Info "Neue Version verfügbar: $latest (installiert: $appVersion)."
         if (AskYesNo "Version $latest jetzt herunterladen und einspielen? (Einstellungen und Videos bleiben erhalten)" $true) {
-          $zipAsset = @($release.assets | Where-Object { $_.name -match '^QuiteSafeGrab-Windows-.+\.zip$' }) | Select-Object -First 1
-          $shaAsset = @($release.assets | Where-Object { $_.name -eq "$($zipAsset.name).sha256" }) | Select-Object -First 1
-          if (-not $zipAsset -or -not $shaAsset) { throw 'Release ohne Paket oder Prüfsummendatei – Update abgebrochen, nichts geändert.' }
+          # Genau das Paket dieser Version (Name wie in make-release.ps1), nicht irgendein ZIP aus dem Release.
+          $pkgName = "QuiteSafeGrab-Windows-$latest"
+          $zipAsset = @($release.assets | Where-Object { $_.name -ceq "$pkgName.zip" })
+          $shaAsset = @($release.assets | Where-Object { $_.name -ceq "$pkgName.zip.sha256" })
+          if ($zipAsset.Count -ne 1 -or $shaAsset.Count -ne 1) { throw "Release ohne eindeutiges Paket $pkgName.zip oder Prüfsummendatei – Update abgebrochen, nichts geändert." }
+          $zipAsset = $zipAsset[0]; $shaAsset = $shaAsset[0]
           if (-not (Test-Path -LiteralPath $dlDir)) { New-Item -ItemType Directory -Path $dlDir | Out-Null }
           $zipPath = Join-Path $dlDir $zipAsset.name
           $shaPath = "$zipPath.sha256"
           Info "Lade $($zipAsset.name)"
-          Save-Download $zipAsset.browser_download_url $zipPath 'Update'
-          Save-Download $shaAsset.browser_download_url $shaPath 'Prüfsumme'
+          Save-Download $zipAsset.browser_download_url $zipPath
+          Save-Download $shaAsset.browser_download_url $shaPath
           $expected = ((Get-Content -LiteralPath $shaPath -TotalCount 1) -split '\s+')[0].ToLowerInvariant()
           if ($expected -notmatch '^[0-9a-f]{64}$' -or (Get-Sha256 $zipPath) -ne $expected) { throw 'Prüfsumme des Updates stimmt nicht – nichts geändert.' }
           $stage = Join-Path $app 'update.new'
           if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Recurse -Force }
           [IO.Compression.ZipFile]::ExtractToDirectory($zipPath, $stage)
-          $root = @(Get-ChildItem -LiteralPath $stage -Directory) | Select-Object -First 1
-          if (-not $root -or -not (Test-Path -LiteralPath (Join-Path $root.FullName 'setup.ps1'))) { throw 'Unerwarteter Paketinhalt – nichts geändert.' }
+          # Genau ein Wurzelordner mit dem Paketnamen (make-release.ps1 packt alles unter "$name/").
+          $top = @(Get-ChildItem -LiteralPath $stage -Force)
+          $root = $null
+          if ($top.Count -eq 1 -and $top[0].PSIsContainer -and $top[0].Name -ceq $pkgName) { $root = $top[0] }
+          if (-not $root -or -not (Test-Path -LiteralPath (Join-Path $root.FullName 'setup.ps1'))) { throw "Unerwarteter Paketinhalt (erwartet: ein Ordner $pkgName) – nichts geändert." }
           foreach ($f in Get-ChildItem -LiteralPath $root.FullName -Recurse -File) {
             $rel = $f.FullName.Substring($root.FullName.Length + 1)
             if ($rel -ieq 'config.toml') { continue }   # eigene Einstellungen nie überschreiben
@@ -335,6 +357,7 @@ if (Test-Path -LiteralPath $pyDir) {
     $v = Invoke-Py @('-I', '-c', 'import platform;print(platform.python_version())')
     if ($v.Code -eq 0) { $have = $v.Text[-1].Trim() }
   }
+  # Eigene Laufzeit = Ordner mit einer ._pth-Datei; haertung.ps1 prüft für seinen Bericht ähnlich (python*._pth).
   if ($have -eq $PY_VERSION) { Info "Aktuell: Python $have"; $needPython = $false }
   elseif (-not (Test-Path -LiteralPath $pth) -and -not (Get-ChildItem -LiteralPath $pyDir -Filter 'python3*._pth' -ErrorAction SilentlyContinue)) {
     throw 'Ordner python existiert, ist aber keine Quite-Safe-Grab-Laufzeit (z. B. aus einer alten Einrichtung). Ordner python löschen und erneut starten.'
@@ -461,8 +484,11 @@ if ($askSettings) {
     $text = Set-TomlKey $text 'blocked_orgs' (Toml-List $isps)
   }
 
-  # -- Frage 2: Speicherort
-  $defaultStore = Join-Path $env:USERPROFILE 'Videos\QuiteSafeGrab'
+  # -- Frage 2: Speicherort (Vorschlag aus der Vorlage: storage = "~/...")
+  $templateStore = [regex]::Match($text, '(?m)^\s*storage\s*=\s*"~/([^"]+)"').Groups[1].Value
+  if (-not $templateStore) { throw 'Vorlage ohne Eintrag storage = "~/..."' }
+  $defaultStore = Join-Path $env:USERPROFILE $templateStore.Replace('/', '\')
+  # OneDrive-Prüfung wie in haertung.ps1 (Under-OneDrive); grab.py lehnt zusätzlich Verknüpfungen im Pfad ab.
   Question '[2/2]' 'Speicherort für die Videos' @(
     'Nicht in OneDrive (würde synchronisiert). Enter übernimmt den Vorschlag.')
   while ($true) {
@@ -482,7 +508,6 @@ if ($askSettings) {
   $protonInstalled = (Test-Path -LiteralPath (Join-Path $env:ProgramFiles 'Proton\VPN')) -or
     [bool](Get-ItemProperty 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*', 'HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*', 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*' -ErrorAction SilentlyContinue |
            Where-Object { $_.DisplayName -match '^Proton ?VPN' })
-  # Die Vorlage enthält bereits die Proton-Werte (vpn_adapter_patterns, allowed_patterns).
   if ($protonInstalled) {
     Info 'VPN: Proton VPN erkannt.'
   } else {
@@ -507,8 +532,8 @@ if ($askSettings) {
     }
   }
 
-  # Browser: keine Frage. Mullvad Browser, wenn vorhanden, sonst Edge (ui_browser = "auto").
-  $text = Set-TomlKey $text 'ui_browser' (Toml-String 'auto')
+  # Browser: keine Frage, die Vorlage setzt ui_browser = "auto". Nur für den Hinweis gesucht;
+  # welchen Browser die Oberfläche nimmt, entscheidet ui.py (find_mullvad, prüft auch diese Orte).
   $mullvad = @(
     (Join-Path $env:LOCALAPPDATA 'Mullvad\MullvadBrowser\Release\mullvadbrowser.exe'),
     (Join-Path $env:ProgramFiles 'Mullvad Browser\Browser\mullvadbrowser.exe')
@@ -535,21 +560,20 @@ Write-State ([ordered]@{ app_version = $appVersion; python = $PY_VERSION; ffmpeg
 Step 'Netzsperre (Windows-Firewall)'
 Info 'Firewall-Regeln erlauben den Programmen von Quite Safe Grab nur den Weg über das VPN.'
 $fw = Get-VpnStatus
-function Test-VpnDown($status) { $status.Code -eq 3 }   # fw.py status: 3 = kein VPN verbunden
-if ($fw.Code -ne 0 -and (Test-VpnDown $fw)) {
+if ($fw.Code -eq $FW_NO_VPN) {
   Warn 'Dein VPN ist nicht verbunden – deshalb kann die Netzsperre gerade nicht geprüft werden.'
   if (-not $Defaults) {
     while ($true) {
       $a = (Read-Green 'Bitte VPN verbinden und Enter drücken (oder "s" zum Überspringen): ').Trim().ToLowerInvariant()
       if ($a -eq 's') { break }
       $fw = Get-VpnStatus
-      if (-not (Test-VpnDown $fw)) { break }
+      if ($fw.Code -ne $FW_NO_VPN) { break }
       Warn 'Noch kein VPN erkannt.'
     }
   }
 }
-if ($fw.Code -eq 0) { Info 'Netzsperre vollständig und passend.' }
-elseif (Test-VpnDown $fw) { Warn 'Übersprungen. Später mit verbundenem VPN: !Einrichten.cmd erneut starten.' }
+if ($fw.Code -eq $FW_OK) { Info 'Netzsperre vollständig und passend.' }
+elseif ($fw.Code -eq $FW_NO_VPN) { Warn 'Übersprungen. Später mit verbundenem VPN: !Einrichten.cmd erneut starten.' }
 else {
   Info 'Die Netzsperre fehlt für diesen Ordner oder passt nicht mehr zur VPN-Adresse.'
   $others = @(Get-RuleFolders | Where-Object { $_ -and ($_.TrimEnd('\') -ne $app.TrimEnd('\')) })
@@ -567,10 +591,11 @@ else {
   Info '     (Steht dort FEHLER, bleibt es offen – dann die Meldung lesen und Enter drücken.)'
   if (AskYesNo 'Netzsperre jetzt anlegen?' (-not $Defaults)) {
     $r = Invoke-Py @('-I', (Join-Path $app 'fw.py'), 'apply') 'Warte auf das zweite Fenster (Administrator)'
+    # 'abgebrochen' stammt aus fw.py relaunch() ("Erhoehter Start abgebrochen oder fehlgeschlagen.").
     if ($r.Code -ne 0 -and (($r.Text -join "`n") -match 'abgebrochen')) { Warn 'Die Windows-Abfrage wurde abgelehnt oder geschlossen.' }
     $fw = Get-VpnStatus
   }
-  if ($fw.Code -eq 0) { Info 'Netzsperre vollständig und passend.' }
+  if ($fw.Code -eq $FW_OK) { Info 'Netzsperre vollständig und passend.' }
   else { Warn 'Netzsperre noch nicht eingerichtet – ohne sie startet kein Download. Später: !Einrichten.cmd erneut starten.' }
 }
 
@@ -578,7 +603,6 @@ else {
 $desktop = [Environment]::GetFolderPath('Desktop')
 $lnk = Join-Path $desktop 'Quite Safe Grab.lnk'
 if (Test-Path -LiteralPath $lnk) {
-  # Vorhandene Verknüpfung auf diesen Ordner: Logo aktuell halten.
   $shell = New-Object -ComObject WScript.Shell
   $s = $shell.CreateShortcut($lnk)
   if ($s.TargetPath -ieq (Join-Path $app 'Oberflaeche-starten.cmd') -and (Test-Path -LiteralPath (Join-Path $app 'logo.ico'))) {
@@ -612,5 +636,5 @@ Write-Host "      $(Join-Path $app 'Oberflaeche-starten.cmd')" -ForegroundColor 
 Write-Host '   Das schwarze Fenster offen lassen; im Browser oben muss "Geschützt" stehen.'
 Write-Host ''
 Write-Host ' Updates und Einstellungen: diese Einrichtung jederzeit erneut starten (!Einrichten.cmd).'
-if ($fw.Code -ne 0) { Write-Host ' Achtung: Die Netzsperre fehlt noch – ohne sie startet kein Download.' -ForegroundColor Yellow }
+if ($fw.Code -ne $FW_OK) { Write-Host ' Achtung: Die Netzsperre fehlt noch – ohne sie startet kein Download.' -ForegroundColor Yellow }
 Write-Host ''

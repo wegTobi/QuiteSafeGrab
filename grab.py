@@ -19,42 +19,40 @@ import signal
 import stat
 import subprocess
 import sys
-import tempfile
 import threading
 import time
-try:
-    import tomllib
-except ModuleNotFoundError:  # Python < 3.11: nur fuer Entwicklung/Tests
-    import tomli as tomllib
+import tomllib
 import unicodedata
 import urllib.parse
 import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from voe_resolver import UA, public_host, valid_url
+from voe_resolver import MAX_SIZE_HOPS, UA, VOE_ID_RE, VOE_REFERER, public_host, valid_url
 import syscompat as sc
 import winguard
+import common
+from common import (BROWSER_AUTO, BROWSER_EDGE, BROWSER_MULLVAD, CHECK_KEYS, ERROR_CHECK, EVENT_PREFIX, EXIT_MEDIA, EXIT_OK, EXIT_RESOLVE, EXIT_SAFETY, EXIT_USER,
+                    HOST_RE, PHASE_CHECKS, PHASE_DONE, PHASE_DOWNLOAD, PHASE_PREVIEW, PHASE_PROBE, PHASE_REMUX, PHASE_RESOLVE, PHASE_SIZES,
+                    PHASE_VERIFY, REDIRECT_HOSTS_ENV, UI_BROWSERS, Failure, check_key, fail, safe_text)
 
 APP = Path(__file__).resolve().parent
-UI_BROWSERS = ('auto', 'mullvad', 'edge')
-SYSTEM32 = Path(os.environ.get('SystemRoot', r'C:\Windows')) / 'System32'
+SYSTEM32 = winguard.SYSTEM32
 
 
 def _tool(name):
-    """Programme im Unterordner tools\\ haben Vorrang, sonst PATH."""
-    for candidate in (APP / 'tools' / (name + '.exe'), APP / 'tools' / name):
-        if candidate.is_file():
-            return str(candidate)
-    return shutil.which(name) or str(APP / 'tools' / (name + '.exe'))
+    candidate = APP / 'tools' / (name + '.exe')
+    if candidate.is_file():
+        return str(candidate)
+    return shutil.which(name) or str(candidate)
 
 
 # yt-dlp laeuft als Python-Modul in der eigenen Laufzeit (python\ + lib\, kein yt-dlp.exe noetig).
 YDL = [sys.executable, '-I', '-m', 'yt_dlp']
 FFMPEG = _tool('ffmpeg')
 FFPROBE = _tool('ffprobe')
-CURL = str(SYSTEM32 / 'curl.exe')
-NSLOOKUP = str(SYSTEM32 / 'nslookup.exe')
-POWERSHELL = str(SYSTEM32 / 'WindowsPowerShell' / 'v1.0' / 'powershell.exe')
+CURL = winguard.CURL
+NSLOOKUP = winguard.NSLOOKUP
+POWERSHELL = winguard.POWERSHELL
 ISO_COUNTRIES = set(('AD AE AF AG AI AL AM AO AQ AR AS AT AU AW AX AZ BA BB BD BE BF BG BH BI BJ BL BM BN BO BQ BR BS BT BV BW BY BZ '
                      'CA CC CD CF CG CH CI CK CL CM CN CO CR CU CV CW CX CY CZ DE DJ DK DM DO DZ EC EE EG EH ER ES ET FI FJ FK FM FO FR '
                      'GA GB GD GE GF GG GH GI GL GM GN GP GQ GR GS GT GU GW GY HK HM HN HR HT HU ID IE IL IM IN IO IQ IR IS IT JE JM JO JP '
@@ -64,42 +62,38 @@ ISO_COUNTRIES = set(('AD AE AF AG AI AL AM AO AQ AR AS AT AU AW AX AZ BA BB BD B
                      'UA UG UM US UY UZ VA VC VE VG VI VN VU WF WS YE YT ZA ZM ZW').split())
 
 
-class Failure(Exception):
-    def __init__(self, code, ident, message):
-        super().__init__(message)
-        self.code, self.ident = code, ident
+class Session:
+    """Prozesszustand eines grab.py-Laufs an einem Ort (nur im Speicher, nie auf der Festplatte)."""
+
+    def __init__(self):
+        self.events = False            # --events: Ereigniszeilen fuer ui.py
+        self.phase = 'start'           # aktuelle Phase fuer progress-Ereignisse
+        self.warned = set()            # Waechter-Warnungen, die schon einmal ausgegeben wurden
+        self.selftest_done = set()     # Selbsttest bestanden, je guard_key (wie rules_ok)
+        self.rules_ok = set()          # volle Pruefung (Regeln + Selbsttest) in diesem Lauf bestanden, je guard_key
+        self.redirect_hosts = set()    # Seiten, deren Links in diesem Lauf nur per Weiterleitung aufloesbar waren
+        self.position = (1, 1)         # Anzeige "läuft noch, x von y" der Warteschlange
 
 
-def fail(code, ident, message):
-    raise Failure(code, ident, message)
-
-
-def safe_text(text):
-    """Do not persist signed URLs; strip terminal control characters too."""
-    text = re.sub(r'https?://[^\s<>"\']+', '[URL entfernt]', str(text))
-    return ''.join(c for c in text if c in '\n\r\t' or unicodedata.category(c)[0] != 'C')
+SESSION = Session()   # Tests setzen den Zustand mit patch.object(g, 'SESSION', g.Session()) neu auf
 
 
 # --- Maschinenlesbare Ereignisse fuer die Oberflaeche (ui.py), nur mit --events.
 # Eine Zeile je Ereignis: "@@QSGRAB {json}". Nur Anzeige - keine Entscheidung haengt davon ab.
 # Texte laufen durch safe_text (keine signierten URLs).
-EVENTS = False
-EVENT_PREFIX = '@@QSGRAB '
-_phase = 'start'
 _PROGRESS = re.compile(r'^\[download\]\s+(?P<pct>\d{1,3}(?:\.\d+)?)%\s+of\s+~?\s*(?P<total>[\d.]+\s*[KMGT]?i?B)'
                        r'(?:\s+in\s+\S+)?(?:\s+at\s+(?P<speed>[\d.]+\s*[KMGT]?i?B/s|Unknown B/s))?(?:\s+ETA\s+(?P<eta>[\d:]+|Unknown))?')
 
 
 def emit(kind, **data):
-    if not EVENTS:
+    if not SESSION.events:
         return
     clean = {k: (safe_text(v) if isinstance(v, str) else v) for k, v in data.items()}
     print(EVENT_PREFIX + json.dumps({'type': kind, 'time': round(time.time(), 3), **clean}, ensure_ascii=False), flush=True)
 
 
 def phase(name):
-    global _phase
-    _phase = name
+    SESSION.phase = name
     emit('phase', phase=name)
 
 
@@ -110,27 +104,13 @@ def progress_event(line):
         return
     speed = m.group('speed')
     eta = m.group('eta')
-    emit('progress', phase=_phase, percent=min(float(m.group('pct')), 100.0), total=m.group('total').replace(' ', ''),
+    emit('progress', phase=SESSION.phase, percent=min(float(m.group('pct')), 100.0), total=m.group('total').replace(' ', ''),
          speed=None if not speed or speed.startswith('Unknown') else speed.replace(' ', ''),
          eta=None if not eta or eta == 'Unknown' else eta)
 
 
-CHECK_KEYS = ('vpn', 'firewall', 'selftest', 'ipv4', 'ipv6', 'dns')
-# Fehler, die ohne eigenes check-Ereignis enden -> welche Pruefung (Ampel) sie betreffen.
-ERROR_CHECK = {'GUARD_QUERY_FAILED': 'firewall', 'GUARD_QUERY_INVALID': 'firewall', 'FIREWALL_DISABLED': 'firewall',
-               'FIREWALL_RULES_MISSING': 'firewall', 'FIREWALL_BLOCKS_VPN': 'firewall',
-               'TUNNEL_STATUS_UNAVAILABLE': 'ipv4', 'EXIT_IP_CHANGED': 'ipv4', 'NETWORK_CHECK_ERROR': 'ipv4',
-               'DNS_RESOLVER_FAILED': 'dns', 'DNS_RESOLVER_AMBIGUOUS': 'dns', 'DNS_RESOLVER_INVALID': 'dns',
-               'DNS_GEO_FAILED': 'dns'}
-
-
-def check_key(label):
-    return 'ipv6' if label.startswith('IPv6') else 'dns' if label.startswith('DNS') else 'ipv4'
-
-
 def error(exc):
-    print(f'FEHLER: ID={exc.ident}; EXIT_CODE={exc.code}; MESSAGE={safe_text(exc)}', file=sys.stderr)
-    emit('error', ident=exc.ident, code=exc.code, message=str(exc), check=ERROR_CHECK.get(exc.ident))
+    common.error(exc, emit)
 
 
 def video_name(title):
@@ -201,9 +181,6 @@ class Result:
 
 
 class Runner:
-    def __init__(self):
-        self.position = (1, 1)
-
     def run(self, argv, *, timeout=120, live=False, cwd=None, input_text=None):
         # Enge Umgebung: keine Proxys, Python-Injektion, netrc oder yt-dlp-Konfiguration.
         env = sc.child_env(cwd)
@@ -237,7 +214,7 @@ class Runner:
                     expired = True
                     tree.kill()
                 if live and elapsed >= heartbeat:
-                    print(f'läuft noch, {self.position[0]} von {self.position[1]}', flush=True)
+                    print(f'läuft noch, {SESSION.position[0]} von {SESSION.position[1]}', flush=True)
                     heartbeat += 30
                 try:
                     channel, line = messages.get(timeout=0.05)
@@ -250,8 +227,6 @@ class Runner:
                     print(safe_text(line), end='', flush=True)
                     progress_event(line)
                 else:
-                    # Nur erfassen, was der Aufrufer braucht (JSON/Diagnose).
-                    # Live-Ausgabe wird einmal angezeigt und nie aufbewahrt.
                     buffers[channel].append(line)
                     sizes[channel] += len(line)
                     if sizes[channel] > 16 * 1024 * 1024:
@@ -262,14 +237,8 @@ class Runner:
                 fail(1, 'PROCESS_EXIT_MISSING', 'Prozess ohne Exit-Code.')
             return Result(code, ''.join(buffers[0]), ''.join(buffers[1]), expired)
         finally:
-            # Auch Nachkommen beenden, die den Hauptprozess ueberlebt haben.
             tree.close()
             proc.wait()
-
-
-def locked_file(path):
-    """Ohne Verknuepfung oeffnen und exklusiv, nicht blockierend sperren."""
-    return sc.locked_file(path)
 
 
 @contextlib.contextmanager
@@ -277,7 +246,7 @@ def gate(path):
     deadline = time.monotonic() + 15
     while True:
         try:
-            lock = locked_file(path)
+            lock = sc.locked_file(path)
             break
         except (BlockingIOError, PermissionError):
             if time.monotonic() >= deadline:
@@ -292,17 +261,14 @@ def gate(path):
 def secure_directory(path):
     path = Path(os.path.abspath(Path(path).expanduser()))
     # Jede vorhandene Pfadkomponente pruefen (Symlink/Junction/Reparse-Point, z. B. OneDrive-Platzhalter).
+    # Gleiche Pruefung getrennt in setup.ps1 (OneDrive-Warnung) und haertung.ps1 (Has-Reparse, Under-OneDrive).
     # Kein realpath-Vergleich: 8.3-Kurznamen wie BENUTZ~1 wuerden sonst faelschlich auffallen.
     if any(sc.is_reparse_or_link(p) for p in (path, *path.parents) if p.exists()):
         fail(1, 'STORAGE_SYMLINK', 'Ablage oder ein Elternpfad ist eine Verknuepfung/Junction/Cloud-Platzhalter. Anderen Speicherort waehlen.')
-    if not sc.IS_WIN and path.resolve() != path:
-        fail(1, 'STORAGE_SYMLINK', 'Ablage oder ein Elternpfad ist eine Verknuepfung.')
     path.mkdir(mode=0o700, parents=True, exist_ok=True)
     s = path.lstat()
     if not stat.S_ISDIR(s.st_mode) or sc.is_reparse_or_link(path):
         fail(1, 'STORAGE_UNSAFE', 'Ablage ist kein gewoehnliches Verzeichnis.')
-    if not sc.IS_WIN and (s.st_uid != os.geteuid() or s.st_mode & 0o022):
-        fail(1, 'STORAGE_UNSAFE', 'Ablage muss dem Benutzer gehoeren und darf nicht fremd beschreibbar sein.')
     return path
 
 
@@ -319,18 +285,25 @@ def safe_tree(path):
 
 
 class Store:
+    OUTPUT_DIR = 'finished'
+    WORK_DIR = '.work'
+    STATE_DIR = '.state'
+    GATE_FILE = '.work.lock'
+    LEGACY_EXIT_IP_FILE = '.last_exit_ip'
+
     def __init__(self, base):
         self.base = secure_directory(base)
-        self.output = secure_directory(self.base / 'finished')
-        self.work = secure_directory(self.base / '.work')
-        self.state = secure_directory(self.base / '.state')
+        self.output = secure_directory(self.base / self.OUTPUT_DIR)
+        self.work = secure_directory(self.base / self.WORK_DIR)
+        self.state = secure_directory(self.base / self.STATE_DIR)
         if self.output.stat().st_dev != self.work.stat().st_dev:
             fail(1, 'STORAGE_FILESYSTEM', 'Arbeits- und Ausgabeordner muessen auf demselben Dateisystem liegen.')
-        self.gatepath = self.base / '.work.lock'
+        self.gatepath = self.base / self.GATE_FILE
 
     def cleanup(self):
         removed = 0
         with gate(self.gatepath):
+            self._remove_legacy_exit_ip()
             for path in self.work.iterdir():
                 if not re.fullmatch('[a-f0-9]{32}', path.name) or path.is_symlink():
                     continue
@@ -340,7 +313,7 @@ class Store:
                     # Sperre pruefen (aktiv = BlockingIOError) und vor dem Loeschen freigeben:
                     # unter Windows laesst sich eine geoeffnete Datei nicht entfernen.
                     # Die globale Sperre (gate) verhindert Wettlaeufe waehrenddessen.
-                    locked_file(path / '.active.lock').close()
+                    sc.locked_file(path / '.active.lock').close()
                     shutil.rmtree(path)
                     removed += 1
                 except OSError:
@@ -353,7 +326,7 @@ class Store:
         with gate(self.gatepath):
             path = self.work / uuid.uuid4().hex
             path.mkdir(mode=0o700)
-            lock = locked_file(path / '.active.lock')
+            lock = sc.locked_file(path / '.active.lock')
         try:
             yield path
         finally:
@@ -376,39 +349,38 @@ class Store:
             for index in range(1, 10000):
                 suffix = '' if index == 1 else f'_{index}'
                 candidate = name[:120-len(suffix)] + suffix
-                if any((self.output / (candidate + ext)).exists() for ext in ('.mp4', '.mkv', '.avi')):
+                if any((self.output / (candidate + ext)).exists() for ext in EXTENSIONS):
                     continue
                 target = self.output / (candidate + extension)
                 try:
-                    # Atomar ohne Ersetzen, auch zwischen parallelen Instanzen.
                     sc.move_noreplace(source, target)
                 except FileExistsError:
                     continue
                 except OSError:
                     fail(1, 'PUBLISH_FAILED', 'Atomare Veroeffentlichung fehlgeschlagen (NTFS-Laufwerk noetig; Datei evtl. von Virenscanner/Programm gesperrt).')
-                sc.fsync_dir(self.output)
                 return target
         fail(1, 'OUTPUT_COLLISION_LIMIT', 'Zu viele gleichnamige Dateien.')
 
-    def last_ip(self, ip):
+    def _remove_legacy_exit_ip(self):
+        """Altlast frueherer Versionen: .state\\.last_exit_ip enthielt die VPN-Exit-IP. Wird nicht mehr
+        geschrieben; eine liegengebliebene Datei wird entfernt - nur genau diese, nur als normale Datei
+        (keine Verknuepfung/Junction/Reparse-Point)."""
+        path = self.state / self.LEGACY_EXIT_IP_FILE
         try:
-            with gate(self.gatepath):
-                fd, temporary = tempfile.mkstemp(prefix='ip-', dir=self.state)
-                try:
-                    with os.fdopen(fd, 'w', encoding='ascii') as f:
-                        f.write(ip + '\n')
-                        f.flush()
-                        os.fsync(f.fileno())
-                    os.replace(temporary, self.state / '.last_exit_ip')
-                finally:
-                    Path(temporary).unlink(missing_ok=True)
+            st = os.lstat(path)
+        except FileNotFoundError:
+            return
         except OSError:
-            print('WARNUNG: Fertige Datei vorhanden; letzte Exit-IP konnte nicht gespeichert werden.')
-
-
-_guard_warned = set()
-_selftest_done = set()
-_rules_ok = set()   # volle Pruefung (Regeln + Selbsttest) in diesem Lauf bestanden, je guard_key
+            print('WARNUNG: Alte Exit-IP-Datei nicht pruefbar: ' + self.LEGACY_EXIT_IP_FILE)
+            return
+        if not stat.S_ISREG(st.st_mode) or sc.is_reparse_or_link(path):
+            print('WARNUNG: Alte Exit-IP-Datei ist keine normale Datei - bleibt unberuehrt: ' + self.LEGACY_EXIT_IP_FILE)
+            return
+        try:
+            path.unlink()
+            print('Alte Exit-IP-Datei entfernt: ' + self.LEGACY_EXIT_IP_FILE)
+        except OSError:
+            print('WARNUNG: Alte Exit-IP-Datei konnte nicht entfernt werden: ' + self.LEGACY_EXIT_IP_FILE)
 
 
 def guard_key(state, patterns, vpn_ips, programs):
@@ -416,27 +388,40 @@ def guard_key(state, patterns, vpn_ips, programs):
 
 
 def query_state(runner, script):
-    r = runner.run([POWERSHELL] + winguard.powershell_args(script), timeout=60)
-    if r.code != 0 or r.timed_out:
-        fail(2, 'GUARD_QUERY_FAILED', 'Adapter-/Firewallabfrage fehlgeschlagen; kein ungeschuetzter Fallback.')
+    def run(argv, timeout):
+        r = runner.run(argv, timeout=timeout)
+        return r.code, r.out, r.err, r.timed_out
     try:
-        return winguard.parse_state(r.out)
-    except ValueError as exc:
+        return winguard.query_state(run, script)
+    except winguard.QueryFailed:
+        fail(2, 'GUARD_QUERY_FAILED', 'Adapter-/Firewallabfrage fehlgeschlagen; kein ungeschuetzter Fallback.')
+    except winguard.QueryInvalid as exc:
         fail(2, 'GUARD_QUERY_INVALID', f'{exc}; kein ungeschuetzter Fallback.')
 
 
 def guard_programs():
     """Alle Programme, die der Downloader mit Netzwerkzugriff startet (Pfade der laufenden Images)."""
-    return [sc.real_exe(), FFMPEG, FFPROBE, CURL, NSLOOKUP]
+    return winguard.guard_programs(sc.real_exe(), FFMPEG, FFPROBE)
 
 
 def warn_once(key, text):
-    if key not in _guard_warned:
-        _guard_warned.add(key)
+    if key not in SESSION.warned:
+        SESSION.warned.add(key)
         print(text)
 
 
-def ensure_guard(runner, config=None):
+def _emit_vpn_ok(vpn, vpn_ips, ips_optional):
+    """check-Ereignis 'vpn'. ips_optional: ohne Adresse entfaellt ' · ' (volle Pruefung); die schnelle Pruefung
+    setzt es immer (sie kommt ohnehin nur mit bekannter VPN-Adresse hierher)."""
+    ips = ' · ' + ', '.join(vpn_ips) if vpn_ips or not ips_optional else ''
+    emit('check', key='vpn', ok=True, detail=', '.join(a['name'] for a in vpn) + ips)
+
+
+def _emit_firewall_ok(programs):
+    emit('check', key='firewall', ok=True, detail=f'{len(programs)} Programme gesperrt ausser ueber das VPN')
+
+
+def ensure_guard(runner, config):
     """Windows-Netzsperre (Gegenstueck zum Linux-Namespace).
 
     1. Ein aktiver VPN-Adapter (Proton) mit IPv4-Adresse muss existieren.
@@ -449,22 +434,19 @@ def ensure_guard(runner, config=None):
     """
     if sys.platform != 'win32':
         fail(1, 'PLATFORM_UNSUPPORTED', 'Start nur unter Windows moeglich.')
-    config = config or {}
-    patterns = config.get('vpn_adapter_patterns', [])
-    enforce = config.get('firewall_enforce', False)
+    patterns = config['vpn_adapter_patterns']   # load_config verlangt beide Schluessel
+    enforce = config['firewall_enforce']
     if not patterns:
         warn_once('patterns', 'WARNUNG: vpn_adapter_patterns ist leer - keine Adapter- und keine Firewallpruefung. Kill-Switch des VPN-Clients muss allein schuetzen.')
         return
     programs = guard_programs()
-    if enforce and _rules_ok:
-        # Regeln und Selbsttest sind in diesem Lauf schon bestanden: nur noch die schnelle Adapterabfrage.
-        # Hat sich irgendetwas geaendert (VPN-Adresse, andere Adressen, Programme), folgt die volle Pruefung.
+    if enforce and SESSION.rules_ok:
         state = query_state(runner, winguard.QUICK_STATE_SCRIPT)
         vpn = winguard.vpn_adapters(state, patterns)
         vpn_ips = winguard.vpn_ipv4(vpn)
-        if vpn and guard_key(state, patterns, vpn_ips, programs) in _rules_ok:
-            emit('check', key='vpn', ok=True, detail=', '.join(a['name'] for a in vpn) + ' · ' + ', '.join(vpn_ips))
-            emit('check', key='firewall', ok=True, detail=f'{len(programs)} Programme gesperrt ausser ueber das VPN')
+        if vpn and guard_key(state, patterns, vpn_ips, programs) in SESSION.rules_ok:
+            _emit_vpn_ok(vpn, vpn_ips, ips_optional=False)
+            _emit_firewall_ok(programs)
             return
     state = query_state(runner, winguard.STATE_SCRIPT)
     vpn = winguard.vpn_adapters(state, patterns)
@@ -472,7 +454,7 @@ def ensure_guard(runner, config=None):
         emit('check', key='vpn', ok=False, detail='Kein aktiver VPN-Adapter')
         fail(2, 'VPN_ADAPTER_MISSING', 'Kein aktiver VPN-Adapter gefunden (Proton verbinden, Kill-Switch aktivieren). Kein ungeschuetzter Fallback.')
     vpn_ips = winguard.vpn_ipv4(vpn)
-    emit('check', key='vpn', ok=True, detail=', '.join(a['name'] for a in vpn) + (' · ' + ', '.join(vpn_ips) if vpn_ips else ''))
+    _emit_vpn_ok(vpn, vpn_ips, ips_optional=True)
     if not enforce:
         warn_once('enforce', 'WARNUNG: firewall_enforce = false - nur Adapterpruefung, keine erzwungene Netzsperre.')
         emit('check', key='firewall', ok=None, detail='Abgeschaltet (firewall_enforce = false)')
@@ -484,9 +466,11 @@ def ensure_guard(runner, config=None):
     if problem:
         emit('check', key='firewall', ok=False, detail=problem[1])
         fail(2, *problem)
-    emit('check', key='firewall', ok=True, detail=f'{len(programs)} Programme gesperrt ausser ueber das VPN')
-    key = (tuple(vpn_ips), tuple(programs))
-    if key not in _selftest_done:
+    _emit_firewall_ok(programs)
+    # Gleicher Schluessel wie rules_ok (inkl. Nicht-VPN-Adressen): eine neue lokale Adresse (z. B. WLAN-Wechsel)
+    # wird im selben Lauf erneut im Selbsttest geprueft.
+    key = guard_key(state, patterns, vpn_ips, programs)
+    if key not in SESSION.selftest_done:
         others = winguard.other_ipv4(state, patterns)
         if others:
             test = runner.run([sys.executable, '-I', '-c', winguard.SELFTEST_CODE] + others, timeout=15 + 4 * len(others))
@@ -499,8 +483,8 @@ def ensure_guard(runner, config=None):
         else:
             print('Netzsperre: Selbsttest uebersprungen (keine weitere lokale IPv4-Adresse neben dem VPN).')
             emit('check', key='selftest', ok=True, detail='Keine weitere lokale Adresse zu pruefen')
-        _selftest_done.add(key)
-    _rules_ok.add(guard_key(state, patterns, vpn_ips, programs))
+        SESSION.selftest_done.add(key)
+    SESSION.rules_ok.add(key)
 
 
 def parse_status(data, source, version=4):
@@ -545,6 +529,14 @@ def parse_txt_ips(text):
     return ips
 
 
+def curl_args(max_time, *, first=(), show_error=False, version=None):
+    """Gemeinsame curl-Grundregeln: keine Proxys, nur HTTPS, feste Zeitlimits. first steht vor --disable
+    (so ruft media_size curl bisher auf - Reihenfolge bewusst unveraendert)."""
+    return ([CURL, *first, '--disable', '--silent'] + (['--show-error'] if show_error else []) +
+            ['--fail', '--max-time', str(max_time), '--connect-timeout', '5', '--noproxy', '*'] +
+            ([f'-{version}'] if version else []) + ['--proto', '=https'])
+
+
 class Network:
     def __init__(self, config, runner, force=False, skip=False):
         self.c, self.r, self.force, self.skip = config, runner, force, skip
@@ -552,9 +544,7 @@ class Network:
         self._dns_geo = {}
 
     def json_request(self, url, version=4):
-        r = self.r.run([CURL, '--disable', '--silent', '--show-error', '--fail', '--max-time', '10',
-                        '--connect-timeout', '5', '--noproxy', '*', f'-{version}', '--proto', '=https',
-                        '--max-filesize', '1048576', url], timeout=12)
+        r = self.r.run(curl_args(10, show_error=True, version=version) + ['--max-filesize', '1048576', url], timeout=12)
         if r.code != 0 or r.timed_out:
             raise ValueError('Status-Endpunkt antwortet nicht')
         return json.loads(r.out)
@@ -605,7 +595,8 @@ class Network:
             emit('check', key='ipv6', ok=True, detail='Kein IPv6-Weg ins Internet')
             return None
         info = parse_status(data, 'am.i.mullvad.net', 6)
-        self.policy(info, 'IPv6')
+        # --force gilt nur fuer IPv4/DNS: IPv6 muss immer auf der Positivliste stehen.
+        self.policy(info, 'IPv6', allow_force=False)
         return info['ip']
 
     def dns(self, known=None):
@@ -621,7 +612,6 @@ class Network:
         resolver = next(iter(ips))
         print('DNS: sichtbar rekursiver Ausgang: ' + resolver)
         if known and known.get('ip') == resolver:
-            # Resolver = soeben gepruefte Exit-IP: deren Geodaten gelten, keine weitere Abfrage.
             info = dict(known)
         elif resolver in self._dns_geo:
             info = dict(self._dns_geo[resolver])
@@ -659,19 +649,31 @@ class Network:
                 fail(2, 'EXIT_IP_CHANGED', 'Exit-IP geaendert; Ergebnis verwerfen und Original-Seitenlink frisch starten.')
             return status['ip']
         except Failure as exc:
-            if exc.code == 2:
-                raise
+            reraise_if_fatal(exc)
             fail(2, 'NETWORK_CHECK_ERROR', 'Netzwerk-Hilfsprozess fehlgeschlagen.')
         except (ValueError, OSError, TypeError, KeyError):
             fail(2, 'NETWORK_CHECK_ERROR', 'Netzwerkstatus konnte nicht vollstaendig geprueft werden.')
 
 
-def ydl_common(referer):
-    return YDL + ['--ignore-config', '--no-plugin-dirs', '--no-cache-dir', '--no-playlist',
+def ydl_options(referer):
+    return ['--ignore-config', '--no-plugin-dirs', '--no-cache-dir', '--no-playlist',
             '--no-js-runtimes', '--no-remote-components', '--proxy', '', '--socket-timeout', '20',
             '--retries', '0', '--fragment-retries', '0', '--extractor-retries', '0', '--file-access-retries', '0',
             '--no-write-info-json', '--no-write-thumbnail', '--no-write-subs', '--no-write-auto-subs',
             '--referer', referer, '--user-agent', UA, '--ffmpeg-location', str(Path(FFMPEG).parent)]
+
+
+def ydl_common(referer):
+    return YDL + ydl_options(referer)
+
+
+NO_URL = object()   # ydl_cmd ohne '--' und Adresse (--load-info-json bringt sie mit)
+
+
+def ydl_cmd(referer, extra, url, first=()):
+    """yt-dlp-Aufruf: Modul, first (schnelle Schalter des ersten Transferversuchs), Grundregeln, extra,
+    zuletzt '--' und url (url=NO_URL bei --load-info-json)."""
+    return YDL + list(first) + ydl_options(referer) + list(extra) + ([] if url is NO_URL else ['--', url])
 
 
 def origin(url):
@@ -689,14 +691,13 @@ def complete_url(text):
 
 def is_voe(url, hosts=()):
     p = urllib.parse.urlsplit(url)
-    if re.fullmatch('/e/[a-z0-9]+', p.path):
+    if re.fullmatch(f'/e/{VOE_ID_RE}', p.path):
         return True
-    # Auch https://voe.sx/<id> (ohne /e/) auf einem konfigurierten VOE-Host
-    return p.hostname in hosts and bool(re.fullmatch('/[a-z0-9]+/?', p.path))
+    return p.hostname in hosts and bool(re.fullmatch(f'/{VOE_ID_RE}/?', p.path))
 
 
 def voe_canonical(url):
-    return 'https://voe.sx/e/' + urllib.parse.urlsplit(url).path.strip('/').rsplit('/', 1)[-1]
+    return VOE_REFERER + 'e/' + urllib.parse.urlsplit(url).path.strip('/').rsplit('/', 1)[-1]
 
 
 def run_voe_resolver(url, config, runner, work):
@@ -711,9 +712,63 @@ def run_voe_resolver(url, config, runner, work):
         fail(4, 'VOE_RESOLUTION_INVALID', 'VOE lieferte keine eindeutige Medienadresse.')
 
 
+def link_title(url, manual, found, host_fallback=False):
+    """Eigener Name, sonst gefundener Titel, sonst letzter Pfadteil (yt-dlp-Links zuletzt der Hostname)."""
+    p = urllib.parse.urlsplit(url)
+    title = manual or found or p.path.rsplit('/', 1)[-1]
+    return (title or p.hostname) if host_fallback else title
+
+
+def media_urls(info, media):
+    """Alle Medienadressen, die yt-dlp fuer diesen Eintrag abrufen koennte."""
+    if info is None:
+        return [media or '']
+    urls = [info.get('url'), info.get('manifest_url'), info.get('fragment_base_url')]
+    for f in (info.get('requested_formats') or []) + (info.get('formats') or []):
+        if isinstance(f, dict):
+            urls += [f.get('url'), f.get('manifest_url'), f.get('fragment_base_url')]
+    return [u for u in urls if isinstance(u, str) and u]
+
+
+@dataclasses.dataclass
+class Item:
+    """Aufgeloester Link. Die Hosts der Medienadressen entstehen beim Anlegen: transfer gibt info vor dem
+    langen Transfer frei, die Hostpruefung (check_media_hosts) haengt davon nicht ab. Gespeichert werden nur
+    die Hostnamen, nicht die signierten Adressen (die sollen mit info aus dem Speicher verschwinden)."""
+    name: str = ''
+    referer: str = ''
+    voe: bool = False
+    media: str | None = dataclasses.field(default=None, repr=False)   # signierte Adressen nie in Ausgaben
+    info: dict | None = dataclasses.field(default=None, repr=False)   # yt-dlp-Infodaten (--load-info-json)
+
+    def __post_init__(self):
+        # Ein Fehler beim Sammeln (z. B. unbrauchbare Formatliste) tritt wie bisher erst in check_media_hosts auf,
+        # nicht schon beim Aufloesen (Vorschau/Groessen bleiben davon unberuehrt).
+        try:
+            self._media_hosts, self._media_error = {urllib.parse.urlsplit(u).hostname for u in media_urls(self.info, self.media)}, None
+        except Exception as exc:
+            self._media_hosts, self._media_error = None, exc
+
+    @property
+    def media_hosts(self):
+        """Hosts aller Medienadressen, die yt-dlp fuer diesen Eintrag abrufen koennte (None = ungueltige Adresse)."""
+        if self._media_error is not None:
+            raise self._media_error
+        return set(self._media_hosts)
+
+    def __getitem__(self, key):
+        """Lesen wie beim frueheren dict (tests/test_golden.py liest item['name'] usw.)."""
+        return getattr(self, key)
+
+
+def as_item(value):
+    """Item; ein dict mit denselben Feldern (Testattrappen) wird umgewandelt."""
+    return value if isinstance(value, Item) else Item(**value)
+
+
 def voe_item(info, url, manual):
-    title = manual or info.get('title') or urllib.parse.urlsplit(url).path.rsplit('/', 1)[-1]
-    return {'name': video_name(title), 'media': info['url'], 'referer': 'https://voe.sx/', 'info': None, 'voe': True}
+    title = link_title(url, manual, info.get('title'))
+    return Item(name=video_name(title), media=info['url'], referer=VOE_REFERER, voe=True)
 
 
 def probe(config, runner, net, work):
@@ -721,24 +776,18 @@ def probe(config, runner, net, work):
     if not net.skip:
         output = work / 'probe.mp4'
         try:
-            r = runner.run(ydl_common(origin(config['probe_url'])) + ['--force-generic-extractor', '--newline',
-                           '--no-continue', '-o', str(output), '--', config['probe_url']], timeout=60, live=True, cwd=work)
+            r = runner.run(ydl_cmd(origin(config['probe_url']), ['--force-generic-extractor', '--newline', '--no-continue',
+                                   '-o', str(output)], config['probe_url']), timeout=60, live=True, cwd=work)
             if r.code != 0 or r.timed_out:
                 fail(2, 'PROBE_FAILED', f'Probe fehlgeschlagen: Exit={r.code}, Timeout={r.timed_out}.')
             if not output.is_file() or output.is_symlink() or output.stat().st_size == 0:
                 fail(2, 'PROBE_OUTPUT_INVALID', 'Probe fehlt oder ist leer.')
         except Failure as exc:
-            if exc.code == 2:
-                raise
+            reraise_if_fatal(exc)
             fail(2, 'PROBE_FAILED', 'Probeprozess fehlgeschlagen.')
         finally:
             output.unlink(missing_ok=True)
     return net.check('IPv4 nach Probe', baseline)
-
-
-_redirect_hosts = set()   # Seiten, deren Links in diesem Lauf nur per Weiterleitung aufloesbar waren
-REDIRECT_HOSTS_ENV = 'QSGRAB_REDIRECT_HOSTS'
-HOST_RE = re.compile(r'(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}')
 
 
 def load_redirect_hosts(environ):
@@ -747,7 +796,7 @@ def load_redirect_hosts(environ):
     for host in environ.get(REDIRECT_HOSTS_ENV, '').split(',')[:100]:
         host = host.strip().lower()
         if HOST_RE.fullmatch(host):
-            _redirect_hosts.add(host)
+            SESSION.redirect_hosts.add(host)
 
 
 def resolve_item(url, manual, config, runner, net, work, baseline):
@@ -758,7 +807,7 @@ def resolve_item(url, manual, config, runner, net, work, baseline):
             fail(4, 'VOE_RESOLUTION_FAILED', 'VOE-Aufloesung fehlgeschlagen; Hostliste/Erreichbarkeit pruefen.')
         return voe_item(info, url, manual)
     parts = urllib.parse.urlsplit(url)
-    redirect_first = parts.scheme == 'https' and parts.hostname in _redirect_hosts
+    redirect_first = parts.scheme == 'https' and parts.hostname in SESSION.redirect_hosts
     if redirect_first:
         # Diese Seite hat in diesem Lauf schon nur per Weiterleitung geklappt: den Weg zuerst versuchen
         # (spart zwei sichere Fehlversuche mit yt-dlp). Gleiche Regeln wie unten; die Pruefung davor
@@ -767,17 +816,17 @@ def resolve_item(url, manual, config, runner, net, work, baseline):
         if info:
             return voe_item(info, url, manual)
         net.check('IPv4 vor yt-dlp-Aufloesung', baseline)
-    args = ydl_common(origin(url)) + ['--skip-download', '--dump-single-json', '--', url]
-    r = runner.run(args, timeout=120, cwd=work)
+    referer, dump = origin(url), ['--skip-download', '--dump-single-json']
+    r = runner.run(ydl_cmd(referer, dump, url), timeout=120, cwd=work)
     if r.code and 'Unsupported URL' in r.err + r.out:
         net.check('IPv4 vor Generic-Aufloesung', baseline)
-        r = runner.run(args[:-2] + ['--force-generic-extractor'] + args[-2:], timeout=120, cwd=work)
+        r = runner.run(ydl_cmd(referer, dump + ['--force-generic-extractor'], url), timeout=120, cwd=work)
     if (r.code != 0 or r.timed_out) and parts.scheme == 'https' and not redirect_first:
         # Weiterleitungslink (z. B. einer Mediathek) auf VOE? Nur echte HTTP-Weiterleitungen, Ziel muss in voe_hosts liegen.
         net.check('IPv4 vor Weiterleitungs-Aufloesung', baseline)
         info = run_voe_resolver(url, config, runner, work)
         if info:
-            _redirect_hosts.add(parts.hostname)   # nur im Speicher, nur fuer diesen Programmlauf
+            SESSION.redirect_hosts.add(parts.hostname)
             emit('redirect_host', host=parts.hostname)   # ui.py merkt es sich im Speicher fuer spaetere Laeufe
             return voe_item(info, url, manual)
     if r.code != 0 or r.timed_out:
@@ -789,10 +838,12 @@ def resolve_item(url, manual, config, runner, net, work, baseline):
             raise ValueError('Keine Medieninformationen')
         if info.get('_type') in ('playlist', 'multi_video'):
             raise ValueError('Keine einzelnen Medieninformationen')
-        title = manual or info.get('title') or urllib.parse.urlsplit(url).path.rsplit('/', 1)[-1] or urllib.parse.urlsplit(url).hostname
-        return {'name': video_name(title), 'media': None, 'referer': origin(url), 'info': info, 'voe': False}
+        title = link_title(url, manual, info.get('title'), host_fallback=True)
+        name = video_name(title)
     except (ValueError, TypeError):
         fail(4, 'LINK_INFO_INVALID', 'Keine brauchbaren einzelnen Medieninformationen.')
+    # Ausserhalb des try: ein Fehler beim Sammeln der Medienadressen endet wie bisher nicht als LINK_INFO_INVALID.
+    return Item(name=name, referer=referer, info=info)
 
 
 def ffprobe(path, runner):
@@ -808,16 +859,40 @@ def ffprobe(path, runner):
         fail(5, 'FFPROBE_EMPTY', 'Keine brauchbaren Format-/Streamdaten.')
 
 
+# Veroeffentlichte Endungen (container_extension) - publish prueft Namenskollisionen ueber alle.
+EXTENSIONS = (EXT_MP4, EXT_MKV, EXT_AVI) = ('.mp4', '.mkv', '.avi')
+
+# Neutrale Pflichtwerte, die der Remux in jede Spur schreibt: (ffmpeg-Spurauswahl, Tag, Wert).
+# Dieselbe Tabelle erzeugt die ffmpeg-Argumente und die Allowlist in check_metadata.
+REMUX_TAGS = (('s', 'language', 'und'),
+              ('s:v', 'handler_name', 'VideoHandler'),
+              ('s:a', 'handler_name', 'SoundHandler'),
+              ('s:s', 'handler_name', 'SubtitleHandler'),
+              ('s:t', 'filename', 'attachment.bin'),
+              ('s:t', 'mimetype', 'application/octet-stream'))
+_STREAM_KINDS = {'v': 'video', 'a': 'audio', 's': 'subtitle', 't': 'attachment'}
+_LANGUAGE = next(value for spec, tag, value in REMUX_TAGS if tag == 'language')
+_HANDLERS = {_STREAM_KINDS[spec[2:]]: value for spec, tag, value in REMUX_TAGS if tag == 'handler_name'}
+_ATTACHMENT_TAGS = {tag: value for spec, tag, value in REMUX_TAGS if spec == 's:t'}
+
+
+def remux_metadata_args():
+    args = ['-metadata', 'encoder=', '-metadata:s', 'encoder=']
+    for spec, tag, value in REMUX_TAGS:
+        args += ['-metadata:' + spec, f'{tag}={value}']
+    return args
+
+
 def container_extension(data):
     names = set(data['format'].get('format_name', '').split(','))
     if names & {'mov', 'mp4'}:
-        return '.mp4'
+        return EXT_MP4
     if 'matroska' in names or names == {'mpegts'}:
         # Native HLS often delivers MPEG-TS. TS itself is never published:
         # remux every selected stream into MKV without transcoding codecs.
-        return '.mkv'
+        return EXT_MKV
     if 'avi' in names:
-        return '.avi'
+        return EXT_AVI
     fail(1, 'CONTAINER_UNSUPPORTED', 'Nicht unterstuetzter Container: ' + ','.join(sorted(names)))
 
 
@@ -835,17 +910,17 @@ def check_metadata(data):
             tag = key.lower()
             ok = False
             if tag == 'language':
-                ok = kind in ('video', 'audio', 'subtitle', 'attachment') and value == 'und'
+                ok = kind in _STREAM_KINDS.values() and value == _LANGUAGE
             elif tag == 'handler_name':
-                ok = extension in ('.mp4', '.mkv') and value == {'video': 'VideoHandler', 'audio': 'SoundHandler', 'subtitle': 'SubtitleHandler'}.get(kind)
+                ok = extension in (EXT_MP4, EXT_MKV) and value == _HANDLERS.get(kind)
             elif tag == 'vendor_id':
                 # FFmpeg >= 6.1 meldet den neutralen MP4-Standardwert; jeder andere Wert wird abgelehnt.
-                ok = extension == '.mp4' and kind in ('video', 'audio') and value == '[0][0][0][0]'
-            elif extension == '.mp4' and kind == 'format':
+                ok = extension == EXT_MP4 and kind in ('video', 'audio') and value == '[0][0][0][0]'
+            elif extension == EXT_MP4 and kind == 'format':
                 allowed = {'major_brand': {'isom', 'mp42', 'mp41'}, 'minor_version': {'0', '512'},
                            'compatible_brands': {'isomiso2avc1mp41', 'isomiso2mp41', 'isomiso2avc1mp41av01', 'mp42mp41isom'}}
                 ok = value in allowed.get(tag, set())
-            if extension == '.mkv':
+            if extension == EXT_MKV:
                 if tag == 'encoder':
                     ok = kind == 'format' and value == 'Lavf'
                 elif tag == 'duration' and kind in ('video', 'audio', 'subtitle'):
@@ -854,8 +929,8 @@ def check_metadata(data):
                         h, m, s, ns = map(int, match.groups())
                         seconds = h*3600 + m*60 + s + ns/1e9
                         ok = 0 <= seconds <= duration + 0.1
-                elif kind == 'attachment' and tag in ('filename', 'mimetype'):
-                    ok = value == {'filename': 'attachment.bin', 'mimetype': 'application/octet-stream'}[tag]
+                elif kind == 'attachment' and tag in _ATTACHMENT_TAGS:
+                    ok = value == _ATTACHMENT_TAGS[tag]
             if not ok:
                 fail(5, 'METADATA_TAGS_NOT_ALLOWED', f'Nicht erlaubter Metadatenwert: {safe_text(key)} (Wert wird nicht protokolliert).')
 
@@ -867,8 +942,9 @@ def selected_streams(data):
     return [videos[0]] + [s for kind in ('audio', 'subtitle', 'attachment') for s in data['streams'] if s['codec_type'] == kind]
 
 
-def verify_streams(before, after):
-    expected, actual = selected_streams(before), after['streams']
+def verify_streams(expected, after):
+    """expected: selected_streams() der Eingabe."""
+    actual = after['streams']
     if len(expected) != len(actual):
         fail(5, 'STREAMS_LOST', 'Anzahl der Video-/Audio-/Untertitel-/Anhangsspuren abweichend.')
     for a, b in zip(expected, actual):
@@ -884,45 +960,44 @@ def verify_streams(before, after):
 
 def remux(raw, runner):
     before = ffprobe(raw, runner)
-    selected_streams(before)
+    expected = selected_streams(before)
     extension = container_extension(before)
     clean = raw.parent / ('clean' + extension)
     args = [FFMPEG, '-nostdin', '-v', 'warning', '-n', '-i', str(raw),
             '-map', '0:v:0', '-map', '0:a?', '-map', '0:s?', '-map', '0:t?',
             '-fflags', '+bitexact', '-flags', '+bitexact', '-map_metadata', '-1', '-map_metadata:s', '-1',
-            '-map_chapters', '-1', '-metadata', 'encoder=', '-metadata:s', 'encoder=',
-            '-metadata:s', 'language=und', '-metadata:s:v', 'handler_name=VideoHandler',
-            '-metadata:s:a', 'handler_name=SoundHandler', '-metadata:s:s', 'handler_name=SubtitleHandler',
-            '-metadata:s:t', 'filename=attachment.bin', '-metadata:s:t', 'mimetype=application/octet-stream',
-            '-c', 'copy', str(clean)]
+            '-map_chapters', '-1', *remux_metadata_args(), '-c', 'copy', str(clean)]
     r = runner.run(args, timeout=1200, live=True, cwd=raw.parent)
     if r.code != 0 or r.timed_out or not clean.is_file() or clean.stat().st_size == 0:
         fail(5, 'FFMPEG_FAILED', 'Remux fehlgeschlagen (Stream/Container unvertraeglich oder Timeout).')
     after = ffprobe(clean, runner)
     check_metadata(after)
-    verify_streams(before, after)
+    verify_streams(expected, after)
     return clean, extension
 
 
 def transfer(item, config, runner, net, work, baseline):
-    if item['voe'] and (item['referer'] != 'https://voe.sx/' or not UA):
+    item = as_item(item)
+    # voe_item setzt den Referer immer; die Sperre bleibt als Schutz, falls ein VOE-Item anders entsteht.
+    if item.voe and (item.referer != VOE_REFERER or not UA):
         fail(1, 'VOE_HEADERS_MISSING', 'VOE-Transfer ohne Pflichtheader verweigert.')
-    args = ydl_common(item['referer']) + ['--newline', '--no-continue', '--abort-on-unavailable-fragments',
+    extra = ['--newline', '--no-continue', '--abort-on-unavailable-fragments',
             '--hls-prefer-native', '--fixup', 'never', '--merge-output-format', 'mkv', '-o', str(work / 'raw.%(ext)s'),
             '--print-to-file', 'after_move:filepath', str(work / 'result-path.txt')]
-    if item['info'] is not None:
+    if item.info is not None:
         info_file = work / 'media.json'
         with info_file.open('w', encoding='utf-8') as stream:
-            json.dump(item['info'], stream)
+            json.dump(item.info, stream)
         # The private info file is already required for --load-info-json/retry.
         # Release Python's format/URL graph before the long transfer starts.
-        item['info'] = None
-        args += ['--load-info-json', str(info_file)]
+        item.info = None
+        extra += ['--load-info-json', str(info_file)]
+        url = NO_URL
     else:
-        args += ['--force-generic-extractor', '--', item['media']]
+        extra += ['--force-generic-extractor']
+        url = item.media
     fast = ['--http-chunk-size', '10M', '--concurrent-fragments', '4']
     for attempt in range(2):
-        # Remove ALL previous attempt files, never resume a damaged partial transfer.
         for old in work.iterdir():
             if old.name.startswith('raw.') or old.name == 'result-path.txt':
                 if not old.is_file() or old.is_symlink():
@@ -930,8 +1005,7 @@ def transfer(item, config, runner, net, work, baseline):
                 old.unlink()
         net.check('IPv4 unmittelbar vor Transfer' if not attempt else 'IPv4 vor kompatiblem Retry', baseline)
         # No external preparatory operations between this checkpoint and transfer.
-        n = len(YDL)
-        current = args[:n] + (fast if not attempt else []) + args[n:]
+        current = ydl_cmd(item.referer, extra, url, first=fast if not attempt else ())
         result = runner.run(current, timeout=config['download_timeout_sec'], live=True, cwd=work)
         if result.code == 0 and not result.timed_out:
             try:
@@ -951,22 +1025,10 @@ def transfer(item, config, runner, net, work, baseline):
     fail(4, 'DOWNLOAD_FAILED', f'yt-dlp fehlgeschlagen: Exit={result.code}, Timeout={result.timed_out}.')
 
 
-def media_urls(item):
-    """Alle Medienadressen, die yt-dlp fuer diesen Eintrag abrufen koennte."""
-    if item.get('info') is None:
-        return [item.get('media') or '']
-    info = item['info']
-    urls = [info.get('url'), info.get('manifest_url'), info.get('fragment_base_url')]
-    for f in (info.get('requested_formats') or []) + (info.get('formats') or []):
-        if isinstance(f, dict):
-            urls += [f.get('url'), f.get('manifest_url'), f.get('fragment_base_url')]
-    return [u for u in urls if isinstance(u, str) and u]
-
-
 def check_media_hosts(item):
     """Vor dem Transfer: Videoquellen nur im oeffentlichen Internet - nie Heimnetz oder der eigene PC
     (eine praeparierte Seite koennte sonst Anfragen an lokale Geraete/Dienste ausloesen)."""
-    hosts = {urllib.parse.urlsplit(u).hostname for u in media_urls(item)}
+    hosts = as_item(item).media_hosts
     if not hosts or None in hosts:
         fail(4, 'MEDIA_HOST_INVALID', 'Videoquelle ohne gueltigen Host.')
     if len(hosts) > 20:
@@ -980,29 +1042,27 @@ def check_media_hosts(item):
 
 def download(url, manual, config, runner, net, store):
     with store.workspace() as work:
-        phase('probe')
+        phase(PHASE_PROBE)
         baseline = probe(config, runner, net, work)
-        phase('resolve')
-        item = resolve_item(url, manual, config, runner, net, work, baseline)
-        print('Name: ' + safe_text(item['name']))
-        emit('title', name=item['name'])
-        phase('download')
+        phase(PHASE_RESOLVE)
+        item = as_item(resolve_item(url, manual, config, runner, net, work, baseline))
+        print('Name: ' + safe_text(item.name))
+        emit('title', name=item.name)
+        phase(PHASE_DOWNLOAD)
         check_media_hosts(item)
         raw = transfer(item, config, runner, net, work, baseline)
-        phase('remux')
+        phase(PHASE_REMUX)
         clean, extension = remux(raw, runner)
-        phase('verify')
-        post = net.check('IPv4 nach Transfer/Remux', baseline)
-        target = store.publish(clean, item['name'], extension)
-        if post:
-            store.last_ip(post)
+        phase(PHASE_VERIFY)
+        net.check('IPv4 nach Transfer/Remux', baseline)
+        target = store.publish(clean, item.name, extension)
         print('Fertig: ' + str(target))
         try:
             size = target.stat().st_size
         except OSError:
             size = None
         emit('done', file=target.name, size=size)
-        phase('done')
+        phase(PHASE_DONE)
         return target
 
 
@@ -1022,30 +1082,54 @@ def read_preview_urls(stream):
     return urls
 
 
+def reraise_if_fatal(exc):
+    """Ein Sicherheitsabbruch (Exit 2) geht immer unveraendert weiter; andere Fehler behandelt der Aufrufer."""
+    if exc.code == 2:
+        raise exc
+
+
+def for_each_link(urls, net, baseline, labels, announce, step):
+    """Schleife fuer Vorschau, Groessen und den interaktiven Modus: announce(i), dann Pruefpunkt labels[0]
+    vor jedem Link (die Aufloesung braucht ihn, siehe resolve_item), dann step(i, url); nach dem letzten Link
+    Pruefpunkt labels[1]. Exit 2 bricht sofort ab, andere Fehler werden je Link geliefert.
+    Liefert (Index, Ergebnis oder None, Failure oder None)."""
+    before, after = labels
+    for i, url in enumerate(urls):
+        announce(i)
+        try:
+            # Auch je Eintrag pruefen: Eingabe und Aufloesung koennen dauern.
+            net.check(before, baseline)
+            result = step(i, url)
+        except Failure as exc:
+            reraise_if_fatal(exc)
+            yield i, None, exc
+            continue
+        yield i, result, None
+    net.check(after, baseline)
+
+
+def queue_summary(ok, skipped, aborted):
+    print(f'Warteschlange: {ok} erfolgreich, {skipped} übersprungen, {aborted} abgebrochen')
+
+
 def resolve_titles(urls, config, runner, net, work, baseline, manual=None):
     """Titel aller Links ermitteln (Kommandozeile und Oberflaeche): Pruefpunkt vor jedem Eintrag und
     danach. Ein Sicherheitsabbruch (Exit 2) beendet sofort; ein nicht aufloesbarer Link wird gemeldet
     und der naechste geprueft. Liefert (Index, Name oder None, Failure oder None) - nur den Namen,
     nie signierte Medienadressen."""
-    for i, url in enumerate(urls):
+    def announce(i):
         emit('preview_start', index=i)
         print(f'Pruefe Link {i+1}/{len(urls)}...')
-        try:
-            # Auch je Eintrag pruefen: Eingabe und Aufloesung koennen dauern.
-            net.check('IPv4 vor Vorschau-Eintrag', baseline)
-            name = resolve_item(url, f'{manual}_{i+1}' if manual else None, config, runner, net, work, baseline)['name']
-        except Failure as exc:
-            if exc.code == 2:
-                raise
-            yield i, None, exc
-            continue
-        yield i, name, None
-    net.check('IPv4 nach Vorschau', baseline)
+
+    def title(i, url):
+        item = resolve_item(url, f'{manual}_{i+1}' if manual else None, config, runner, net, work, baseline)
+        return as_item(item).name
+    return for_each_link(urls, net, baseline, ('IPv4 vor Vorschau-Eintrag', 'IPv4 nach Vorschau'), announce, title)
 
 
 def preview(config, runner, net, store, urls):
     """--preview fuer die Oberflaeche: Titel ermitteln, ohne herunterzuladen."""
-    phase('preview')
+    phase(PHASE_PREVIEW)
     failed = 0
     with store.workspace() as work:
         baseline = net.check('IPv4 vor Vorschau')
@@ -1092,20 +1176,22 @@ def _header_location(text):
 def media_size(item, runner, work):
     """Dateigroesse ohne Download: yt-dlp-Angaben, sonst Kopfzeilen der Videodatei (HEAD, notfalls 1 Byte).
     HLS-Streams haben keine Gesamtgroesse -> None. Die Medienadresse geht per Standardeingabe an curl."""
-    info = item.get('info')
+    item = as_item(item)
+    info = item.info
     if info is not None:
         size = info.get('filesize') or info.get('filesize_approx')
         if not size and info.get('requested_formats'):
             parts = [f.get('filesize') or f.get('filesize_approx') for f in info['requested_formats']]
             size = sum(parts) if all(parts) else None
         return int(size) if isinstance(size, (int, float)) and size > 0 else None
-    url = item.get('media') or ''
+    url = item.media or ''
     if '.m3u8' in urllib.parse.urlsplit(url).path:
         return None
     # Weiterleitungen nicht blind folgen: jedes Ziel nur HTTPS und nur oeffentliche Adressen
     # (kein Heimnetz, kein 127.0.0.1) - gleiche Regel wie voe_resolver.follow().
-    for _ in range(4):
+    for _ in range(MAX_SIZE_HOPS):
         p = urllib.parse.urlsplit(url)
+        # Nur das Schema, kein Port wie bei voe_resolver.https_443 (bewusst unveraendert).
         if p.scheme != 'https' or not p.hostname:
             return None
         try:
@@ -1113,11 +1199,10 @@ def media_size(item, runner, work):
         except ValueError:
             return None
         config_text = 'url = "' + url.replace('\\', '\\\\').replace('"', '\\"') + '"\n'
-        base = [CURL, '--disable', '--silent', '--fail', '--max-time', '15', '--connect-timeout', '5',
-                '--noproxy', '*', '--proto', '=https', '--user-agent', UA, '--referer', item['referer'], '--config', '-']
         target = None
         for extra in (['--head'], ['--range', '0-0', '--dump-header', '-', '--output', os.devnull]):
-            r = runner.run(base[:1] + extra + base[1:], timeout=20, cwd=work, input_text=config_text)
+            argv = curl_args(15, first=extra) + ['--user-agent', UA, '--referer', item.referer, '--config', '-']
+            r = runner.run(argv, timeout=20, cwd=work, input_text=config_text)
             if r.code != 0 or r.timed_out:
                 continue
             location = _header_location(r.out)
@@ -1135,24 +1220,24 @@ def media_size(item, runner, work):
 
 def sizes(config, runner, net, store, urls):
     """--sizes fuer die Oberflaeche: Dateigroessen der wartenden Links ermitteln, ohne herunterzuladen."""
-    phase('sizes')
+    phase(PHASE_SIZES)
     with store.workspace() as work:
         baseline = net.check('IPv4 vor Groessenabfrage')
-        for i, url in enumerate(urls):
+
+        def announce(i):
             emit('size_start', index=i)
             print(f'Groesse {i+1}/{len(urls)}...')
-            try:
-                net.check('IPv4 vor Groessen-Eintrag', baseline)
-                size = media_size(resolve_item(url, None, config, runner, net, work, baseline), runner, work)
-            except Failure as exc:
-                if exc.code == 2:
-                    raise
+
+        def size_of(i, url):
+            return media_size(resolve_item(url, None, config, runner, net, work, baseline), runner, work)
+        for i, size, exc in for_each_link(urls, net, baseline, ('IPv4 vor Groessen-Eintrag', 'IPv4 nach Groessenabfrage'),
+                                          announce, size_of):
+            if exc is not None:
                 print(f'{i+1}. Groesse unbekannt: ' + safe_text(exc))
                 emit('size', index=i, bytes=None)
                 continue
             print(f'{i+1}. Groesse: ' + (f'{size / 1024**2:.0f} MB' if size else 'unbekannt'))
             emit('size', index=i, bytes=size)
-        net.check('IPv4 nach Groessenabfrage', baseline)
     emit('sized', total=len(urls))
     return 0
 
@@ -1180,7 +1265,7 @@ def run_queue(entries, execute):
             aborted = len(entries)-i
             code = 1
             break
-    print(f'Warteschlange: {ok} erfolgreich, {skipped} übersprungen, {aborted} abgebrochen')
+    queue_summary(ok, skipped, aborted)
     return code
 
 
@@ -1198,7 +1283,7 @@ def interactive(config, runner, net, store, manual=None):
         except ValueError:
             print('Ungueltiger Link; vollstaendige HTTP/HTTPS-Adresse erforderlich.')
     if not urls:
-        print('Warteschlange: 0 erfolgreich, 0 übersprungen, 0 abgebrochen')
+        queue_summary(0, 0, 0)
         return 0
     entries = []
     try:
@@ -1209,22 +1294,23 @@ def interactive(config, runner, net, store, manual=None):
                                {'url': urls[i], 'name': '', 'valid': False, 'error': safe_text(exc)})
     except Failure as exc:
         error(exc)
-        print(f'Warteschlange: 0 erfolgreich, 0 übersprungen, {len(urls)} abgebrochen')
+        queue_summary(0, 0, len(urls))
         return exc.code
     for i, item in enumerate(entries):
         print(f'{i+1}. ' + ('OK: ' + safe_text(item['name']) if item['valid'] else 'FEHLER: ' + item['error']))
     if not any(x['valid'] for x in entries):
-        return run_queue(entries, lambda *a: None)
+        queue_summary(0, len(entries), 0)   # alle Links unbrauchbar: nichts zu starten
+        return 1
     while True:
         answer = input('Enter startet; abbrechen verwirft die Liste: ').strip().casefold()
         if answer == 'abbrechen':
-            print(f'Warteschlange: 0 erfolgreich, 0 übersprungen, {len(entries)} abgebrochen')
+            queue_summary(0, 0, len(entries))
             return 0
         if not answer:
             break
         print('Bitte Enter oder abbrechen eingeben.')
     def execute(item, index, total):
-        runner.position = (index, total)
+        SESSION.position = (index, total)
         download(item['url'], item['name'], config, runner, net, store)
     return run_queue(entries, execute)
 
@@ -1242,9 +1328,8 @@ def main(argv=None):
                         help='Nur Titel ermitteln (ein Link pro Zeile auf der Standardeingabe), kein Download.')
     parser.add_argument('--sizes', action='store_true', help=argparse.SUPPRESS)  # Dateigroessen fuer ui.py (Links auf stdin)
     args = parser.parse_args(argv)
-    global EVENTS
-    EVENTS = args.events
-    if EVENTS:
+    SESSION.events = args.events
+    if SESSION.events:
         # Ausgabe geht in eine Pipe zu ui.py: immer UTF-8 statt der Windows-Codepage.
         for stream in (sys.stdout, sys.stderr, sys.stdin):
             with contextlib.suppress(AttributeError, ValueError):
@@ -1255,7 +1340,7 @@ def main(argv=None):
             fail(1, 'PLATFORM_UNSUPPORTED', 'Start nur unter Windows moeglich.')
         runner = Runner()
         config = load_config(args.config)
-        phase('checks')
+        phase(PHASE_CHECKS)
         ensure_guard(runner, config)
         if args.check_only:
             if args.url:
@@ -1299,8 +1384,12 @@ def main(argv=None):
         return 1
 
 
+def _interrupt(signum, frame):
+    raise KeyboardInterrupt()
+
+
 if __name__ == '__main__':
     for _sig in (signal.SIGTERM, getattr(signal, 'SIGBREAK', None)):
         if _sig is not None:
-            signal.signal(_sig, lambda *a: (_ for _ in ()).throw(KeyboardInterrupt()))
+            signal.signal(_sig, _interrupt)
     sys.exit(main())

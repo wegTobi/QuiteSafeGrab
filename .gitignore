@@ -9,6 +9,7 @@ lib/
 lib.new/
 tools/
 downloads/
+# venv/ stammt aus aelteren Einrichtungen (setup.ps1 meldet ihn als loeschbar)
 venv/
 .ui-profile/
 

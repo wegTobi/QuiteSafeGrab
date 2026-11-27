@@ -1,0 +1,3807 @@
+{
+ "codes": {
+  "CHECK_KEYS": [
+   "vpn",
+   "firewall",
+   "selftest",
+   "ipv4",
+   "ipv6",
+   "dns"
+  ],
+  "ERROR_CHECK": {
+   "DNS_GEO_FAILED": "dns",
+   "DNS_RESOLVER_AMBIGUOUS": "dns",
+   "DNS_RESOLVER_FAILED": "dns",
+   "DNS_RESOLVER_INVALID": "dns",
+   "EXIT_IP_CHANGED": "ipv4",
+   "FIREWALL_BLOCKS_VPN": "firewall",
+   "FIREWALL_DISABLED": "firewall",
+   "FIREWALL_RULES_MISSING": "firewall",
+   "GUARD_QUERY_FAILED": "firewall",
+   "GUARD_QUERY_INVALID": "firewall",
+   "NETWORK_CHECK_ERROR": "ipv4",
+   "TUNNEL_STATUS_UNAVAILABLE": "ipv4"
+  },
+  "HOST_RE": "(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}",
+  "MAX_PREVIEW": 50,
+  "REDIRECT_HOSTS_ENV": "QSGRAB_REDIRECT_HOSTS",
+  "UI_BROWSERS": [
+   "auto",
+   "mullvad",
+   "edge"
+  ],
+  "check_key": {
+   "DNS": "dns",
+   "IPv4 Statuspruefung": "ipv4",
+   "IPv4 vor Probe": "ipv4",
+   "IPv6": "ipv6"
+  },
+  "idents": {
+   "ATTACHMENT_CHANGED": [
+    5
+   ],
+   "BLOCKED_ORG": [
+    2
+   ],
+   "CONFIG_INVALID": [
+    1
+   ],
+   "CONTAINER_UNSUPPORTED": [
+    1
+   ],
+   "DNS_GEO_FAILED": [
+    2
+   ],
+   "DNS_RESOLVER_AMBIGUOUS": [
+    2
+   ],
+   "DNS_RESOLVER_FAILED": [
+    2
+   ],
+   "DNS_RESOLVER_INVALID": [
+    2
+   ],
+   "DOWNLOAD_FAILED": [
+    4
+   ],
+   "DOWNLOAD_OUTPUT_INVALID": [
+    4
+   ],
+   "EXIT_IP_CHANGED": [
+    2
+   ],
+   "FFMPEG_FAILED": [
+    5
+   ],
+   "FFPROBE_EMPTY": [
+    5
+   ],
+   "FFPROBE_FAILED": [
+    5
+   ],
+   "FIREWALL_BLOCKS_VPN": [
+    2
+   ],
+   "FIREWALL_DISABLED": [
+    2
+   ],
+   "FIREWALL_RULES_MISSING": [
+    2
+   ],
+   "FIREWALL_SELFTEST_FAILED": [
+    2
+   ],
+   "GUARD_QUERY_FAILED": [
+    2
+   ],
+   "GUARD_QUERY_INVALID": [
+    2
+   ],
+   "HOME_COUNTRY_DETECTED": [
+    2
+   ],
+   "INPUT_CONFLICT": [
+    1
+   ],
+   "INPUT_URL_INVALID": [
+    1
+   ],
+   "IP_COUNTRY_UNKNOWN": [
+    2
+   ],
+   "LINK_INFO_INVALID": [
+    4
+   ],
+   "LINK_RESOLUTION_FAILED": [
+    4
+   ],
+   "MEDIA_HOST_INVALID": [
+    4
+   ],
+   "MEDIA_HOST_PRIVATE": [
+    4
+   ],
+   "METADATA_CHAPTERS": [
+    5
+   ],
+   "METADATA_TAGS_NOT_ALLOWED": [
+    5
+   ],
+   "NETWORK_CHECK_ERROR": [
+    2
+   ],
+   "ORG_NOT_ALLOWLISTED": [
+    2
+   ],
+   "OUTPUT_COLLISION_LIMIT": [
+    1
+   ],
+   "OUTPUT_NAME_INVALID": [
+    1
+   ],
+   "PARTIAL_UNSAFE": [
+    4
+   ],
+   "PLATFORM_UNSUPPORTED": [
+    1
+   ],
+   "PROBE_FAILED": [
+    2
+   ],
+   "PROBE_OUTPUT_INVALID": [
+    2
+   ],
+   "PROCESS_EXIT_MISSING": [
+    1
+   ],
+   "PROCESS_OUTPUT_TOO_LARGE": [
+    1
+   ],
+   "PROCESS_START_FAILED": [
+    1
+   ],
+   "PUBLISH_FAILED": [
+    1
+   ],
+   "PUBLISH_SOURCE_INVALID": [
+    1
+   ],
+   "STORAGE_BUSY": [
+    1
+   ],
+   "STORAGE_FILESYSTEM": [
+    1
+   ],
+   "STORAGE_SYMLINK": [
+    1
+   ],
+   "STORAGE_UNSAFE": [
+    1
+   ],
+   "STREAMS_CHANGED": [
+    5
+   ],
+   "STREAMS_LOST": [
+    5
+   ],
+   "TUNNEL_STATUS_UNAVAILABLE": [
+    2
+   ],
+   "UNEXPECTED_ERROR": [
+    1
+   ],
+   "USER_ABORT": [
+    1
+   ],
+   "VIDEO_STREAM_MISSING": [
+    1
+   ],
+   "VOE_HEADERS_MISSING": [
+    1
+   ],
+   "VOE_RESOLUTION_FAILED": [
+    4
+   ],
+   "VOE_RESOLUTION_INVALID": [
+    4
+   ],
+   "VPN_ADAPTER_MISSING": [
+    2
+   ],
+   "VPN_IP_MISSING": [
+    2
+   ]
+  },
+  "unresolved": []
+ },
+ "emit": {
+  "EVENT_PREFIX": "@@QSGRAB ",
+  "events_off": "",
+  "stderr_lines": [
+   "FEHLER: ID=EXIT_IP_CHANGED; EXIT_CODE=2; MESSAGE=Exit-IP geaendert [URL entfernt]",
+   "FEHLER: ID=LINK_RESOLUTION_FAILED; EXIT_CODE=4; MESSAGE=nicht aufloesbar"
+  ],
+  "stdout_lines": [
+   "@@QSGRAB {\"type\": \"check\", \"time\": 1700000000.123, \"key\": \"vpn\", \"ok\": true, \"detail\": \"ProtonVPN · 10.2.0.2 [URL entfernt]\", \"n\": 3, \"none\": null}",
+   "@@QSGRAB {\"type\": \"phase\", \"time\": 1700000000.123, \"phase\": \"download\"}",
+   "@@QSGRAB {\"type\": \"progress\", \"time\": 1700000000.123, \"phase\": \"download\", \"percent\": 42.5, \"total\": \"12.34MiB\", \"speed\": \"1.50MiB/s\", \"eta\": \"00:07\"}",
+   "@@QSGRAB {\"type\": \"progress\", \"time\": 1700000000.123, \"phase\": \"download\", \"percent\": 100.0, \"total\": \"5.00MiB\", \"speed\": null, \"eta\": null}",
+   "@@QSGRAB {\"type\": \"error\", \"time\": 1700000000.123, \"ident\": \"EXIT_IP_CHANGED\", \"code\": 2, \"message\": \"Exit-IP geaendert [URL entfernt]\", \"check\": \"ipv4\"}",
+   "@@QSGRAB {\"type\": \"error\", \"time\": 1700000000.123, \"ident\": \"LINK_RESOLUTION_FAILED\", \"code\": 4, \"message\": \"nicht aufloesbar\", \"check\": null}"
+  ]
+ },
+ "ensure_guard": {
+  "enforce_off": {
+   "log": [
+    {
+     "run": [
+      "<POWERSHELL>",
+      "-NoLogo",
+      "-NoProfile",
+      "-NonInteractive",
+      "-ExecutionPolicy",
+      "Restricted",
+      "-EncodedCommand",
+      "<ENC:STATE_SCRIPT>"
+     ],
+     "timeout": 60
+    },
+    {
+     "detail": "ProtonVPN · 10.2.0.2",
+     "emit": "check",
+     "key": "vpn",
+     "ok": true
+    },
+    {
+     "detail": "Abgeschaltet (firewall_enforce = false)",
+     "emit": "check",
+     "key": "firewall",
+     "ok": null
+    },
+    {
+     "run": [
+      "<POWERSHELL>",
+      "-NoLogo",
+      "-NoProfile",
+      "-NonInteractive",
+      "-ExecutionPolicy",
+      "Restricted",
+      "-EncodedCommand",
+      "<ENC:STATE_SCRIPT>"
+     ],
+     "timeout": 60
+    },
+    {
+     "detail": "ProtonVPN · 10.2.0.2",
+     "emit": "check",
+     "key": "vpn",
+     "ok": true
+    },
+    {
+     "detail": "Abgeschaltet (firewall_enforce = false)",
+     "emit": "check",
+     "key": "firewall",
+     "ok": null
+    }
+   ],
+   "stdout": "WARNUNG: firewall_enforce = false - nur Adapterpruefung, keine erzwungene Netzsperre.\n"
+  },
+  "log": [
+   {
+    "step": "first"
+   },
+   {
+    "run": [
+     "<POWERSHELL>",
+     "-NoLogo",
+     "-NoProfile",
+     "-NonInteractive",
+     "-ExecutionPolicy",
+     "Restricted",
+     "-EncodedCommand",
+     "<ENC:STATE_SCRIPT>"
+    ],
+    "timeout": 60
+   },
+   {
+    "detail": "ProtonVPN · 10.2.0.2",
+    "emit": "check",
+    "key": "vpn",
+    "ok": true
+   },
+   {
+    "detail": "5 Programme gesperrt ausser ueber das VPN",
+    "emit": "check",
+    "key": "firewall",
+    "ok": true
+   },
+   {
+    "run": [
+     "<PY>",
+     "-I",
+     "-c",
+     "<SELFTEST_CODE>",
+     "192.168.178.20"
+    ],
+    "timeout": 19
+   },
+   {
+    "detail": "1 andere Adresse(n) blockiert oder ohne Weg ins Netz",
+    "emit": "check",
+    "key": "selftest",
+    "ok": true
+   },
+   {
+    "step": "second_same_state"
+   },
+   {
+    "run": [
+     "<POWERSHELL>",
+     "-NoLogo",
+     "-NoProfile",
+     "-NonInteractive",
+     "-ExecutionPolicy",
+     "Restricted",
+     "-EncodedCommand",
+     "<ENC:QUICK_STATE_SCRIPT>"
+    ],
+    "timeout": 60
+   },
+   {
+    "detail": "ProtonVPN · 10.2.0.2",
+    "emit": "check",
+    "key": "vpn",
+    "ok": true
+   },
+   {
+    "detail": "5 Programme gesperrt ausser ueber das VPN",
+    "emit": "check",
+    "key": "firewall",
+    "ok": true
+   },
+   {
+    "step": "changed_vpn_ip"
+   },
+   {
+    "run": [
+     "<POWERSHELL>",
+     "-NoLogo",
+     "-NoProfile",
+     "-NonInteractive",
+     "-ExecutionPolicy",
+     "Restricted",
+     "-EncodedCommand",
+     "<ENC:QUICK_STATE_SCRIPT>"
+    ],
+    "timeout": 60
+   },
+   {
+    "run": [
+     "<POWERSHELL>",
+     "-NoLogo",
+     "-NoProfile",
+     "-NonInteractive",
+     "-ExecutionPolicy",
+     "Restricted",
+     "-EncodedCommand",
+     "<ENC:STATE_SCRIPT>"
+    ],
+    "timeout": 60
+   },
+   {
+    "detail": "ProtonVPN · 10.2.0.9",
+    "emit": "check",
+    "key": "vpn",
+    "ok": true
+   },
+   {
+    "detail": "5 Programme gesperrt ausser ueber das VPN",
+    "emit": "check",
+    "key": "firewall",
+    "ok": true
+   },
+   {
+    "run": [
+     "<PY>",
+     "-I",
+     "-c",
+     "<SELFTEST_CODE>",
+     "192.168.178.20"
+    ],
+    "timeout": 19
+   },
+   {
+    "detail": "1 andere Adresse(n) blockiert oder ohne Weg ins Netz",
+    "emit": "check",
+    "key": "selftest",
+    "ok": true
+   },
+   {
+    "step": "changed_vpn_ip_again"
+   },
+   {
+    "run": [
+     "<POWERSHELL>",
+     "-NoLogo",
+     "-NoProfile",
+     "-NonInteractive",
+     "-ExecutionPolicy",
+     "Restricted",
+     "-EncodedCommand",
+     "<ENC:QUICK_STATE_SCRIPT>"
+    ],
+    "timeout": 60
+   },
+   {
+    "detail": "ProtonVPN · 10.2.0.9",
+    "emit": "check",
+    "key": "vpn",
+    "ok": true
+   },
+   {
+    "detail": "5 Programme gesperrt ausser ueber das VPN",
+    "emit": "check",
+    "key": "firewall",
+    "ok": true
+   },
+   {
+    "step": "changed_lan_ip"
+   },
+   {
+    "run": [
+     "<POWERSHELL>",
+     "-NoLogo",
+     "-NoProfile",
+     "-NonInteractive",
+     "-ExecutionPolicy",
+     "Restricted",
+     "-EncodedCommand",
+     "<ENC:QUICK_STATE_SCRIPT>"
+    ],
+    "timeout": 60
+   },
+   {
+    "run": [
+     "<POWERSHELL>",
+     "-NoLogo",
+     "-NoProfile",
+     "-NonInteractive",
+     "-ExecutionPolicy",
+     "Restricted",
+     "-EncodedCommand",
+     "<ENC:STATE_SCRIPT>"
+    ],
+    "timeout": 60
+   },
+   {
+    "detail": "ProtonVPN · 10.2.0.2",
+    "emit": "check",
+    "key": "vpn",
+    "ok": true
+   },
+   {
+    "detail": "5 Programme gesperrt ausser ueber das VPN",
+    "emit": "check",
+    "key": "firewall",
+    "ok": true
+   },
+   {
+    "run": [
+     "<PY>",
+     "-I",
+     "-c",
+     "<SELFTEST_CODE>",
+     "192.168.1.77"
+    ],
+    "timeout": 19
+   },
+   {
+    "detail": "1 andere Adresse(n) blockiert oder ohne Weg ins Netz",
+    "emit": "check",
+    "key": "selftest",
+    "ok": true
+   },
+   {
+    "step": "vpn_gone"
+   },
+   {
+    "run": [
+     "<POWERSHELL>",
+     "-NoLogo",
+     "-NoProfile",
+     "-NonInteractive",
+     "-ExecutionPolicy",
+     "Restricted",
+     "-EncodedCommand",
+     "<ENC:QUICK_STATE_SCRIPT>"
+    ],
+    "timeout": 60
+   },
+   {
+    "run": [
+     "<POWERSHELL>",
+     "-NoLogo",
+     "-NoProfile",
+     "-NonInteractive",
+     "-ExecutionPolicy",
+     "Restricted",
+     "-EncodedCommand",
+     "<ENC:STATE_SCRIPT>"
+    ],
+    "timeout": 60
+   },
+   {
+    "detail": "Kein aktiver VPN-Adapter",
+    "emit": "check",
+    "key": "vpn",
+    "ok": false
+   },
+   {
+    "code": 2,
+    "failure": "VPN_ADAPTER_MISSING"
+   }
+  ],
+  "no_other_address": {
+   "log": [
+    {
+     "run": [
+      "<POWERSHELL>",
+      "-NoLogo",
+      "-NoProfile",
+      "-NonInteractive",
+      "-ExecutionPolicy",
+      "Restricted",
+      "-EncodedCommand",
+      "<ENC:STATE_SCRIPT>"
+     ],
+     "timeout": 60
+    },
+    {
+     "detail": "ProtonVPN · 10.2.0.2",
+     "emit": "check",
+     "key": "vpn",
+     "ok": true
+    },
+    {
+     "detail": "5 Programme gesperrt ausser ueber das VPN",
+     "emit": "check",
+     "key": "firewall",
+     "ok": true
+    },
+    {
+     "detail": "Keine weitere lokale Adresse zu pruefen",
+     "emit": "check",
+     "key": "selftest",
+     "ok": true
+    }
+   ],
+   "stdout": "Netzsperre: Selbsttest uebersprungen (keine weitere lokale IPv4-Adresse neben dem VPN).\n"
+  },
+  "no_patterns": {
+   "log": [],
+   "stdout": "WARNUNG: vpn_adapter_patterns ist leer - keine Adapter- und keine Firewallpruefung. Kill-Switch des VPN-Clients muss allein schuetzen.\n"
+  },
+  "rules_stale": {
+   "log": [
+    {
+     "run": [
+      "<POWERSHELL>",
+      "-NoLogo",
+      "-NoProfile",
+      "-NonInteractive",
+      "-ExecutionPolicy",
+      "Restricted",
+      "-EncodedCommand",
+      "<ENC:STATE_SCRIPT>"
+     ],
+     "timeout": 60
+    },
+    {
+     "detail": "ProtonVPN · 10.2.0.2",
+     "emit": "check",
+     "key": "vpn",
+     "ok": true
+    },
+    {
+     "detail": "Netzsperre fehlt oder passt nicht zur VPN-Adresse (python.exe). Als Administrator einrichten: qsgrab.cmd firewall apply",
+     "emit": "check",
+     "key": "firewall",
+     "ok": false
+    },
+    {
+     "code": 2,
+     "failure": "FIREWALL_RULES_MISSING"
+    }
+   ],
+   "stdout": ""
+  },
+  "selftest_open": {
+   "log": [
+    {
+     "run": [
+      "<POWERSHELL>",
+      "-NoLogo",
+      "-NoProfile",
+      "-NonInteractive",
+      "-ExecutionPolicy",
+      "Restricted",
+      "-EncodedCommand",
+      "<ENC:STATE_SCRIPT>"
+     ],
+     "timeout": 60
+    },
+    {
+     "detail": "ProtonVPN · 10.2.0.2",
+     "emit": "check",
+     "key": "vpn",
+     "ok": true
+    },
+    {
+     "detail": "5 Programme gesperrt ausser ueber das VPN",
+     "emit": "check",
+     "key": "firewall",
+     "ok": true
+    },
+    {
+     "run": [
+      "<PY>",
+      "-I",
+      "-c",
+      "<SELFTEST_CODE>",
+      "192.168.178.20"
+     ],
+     "timeout": 19
+    },
+    {
+     "detail": "Verbindung an der Firewall vorbei moeglich",
+     "emit": "check",
+     "key": "selftest",
+     "ok": false
+    },
+    {
+     "code": 2,
+     "failure": "FIREWALL_SELFTEST_FAILED"
+    }
+   ],
+   "stdout": ""
+  },
+  "stdout": "Netzsperre: Selbsttest bestanden (1 Nicht-VPN-Adresse(n) blockiert oder ohne Weg ins Netz).\nNetzsperre: Selbsttest bestanden (1 Nicht-VPN-Adresse(n) blockiert oder ohne Weg ins Netz).\nNetzsperre: Selbsttest bestanden (1 Nicht-VPN-Adresse(n) blockiert oder ohne Weg ins Netz).\n"
+ },
+ "media_size": {
+  "head": {
+   "log": [
+    {
+     "public_host": "cdn.example"
+    },
+    {
+     "cwd": "<WORK>",
+     "input_text": "url = \"https://cdn.example/v.mp4?sig=geheim\"\n",
+     "run": [
+      "<CURL>",
+      "--head",
+      "--disable",
+      "--silent",
+      "--fail",
+      "--max-time",
+      "15",
+      "--connect-timeout",
+      "5",
+      "--noproxy",
+      "*",
+      "--proto",
+      "=https",
+      "--user-agent",
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0",
+      "--referer",
+      "https://voe.sx/",
+      "--config",
+      "-"
+     ],
+     "timeout": 20
+    }
+   ],
+   "size": 700
+  },
+  "nothing": {
+   "log": [
+    {
+     "public_host": "cdn.example"
+    },
+    {
+     "cwd": "<WORK>",
+     "input_text": "url = \"https://cdn.example/v.mp4?sig=geheim\"\n",
+     "run": [
+      "<CURL>",
+      "--head",
+      "--disable",
+      "--silent",
+      "--fail",
+      "--max-time",
+      "15",
+      "--connect-timeout",
+      "5",
+      "--noproxy",
+      "*",
+      "--proto",
+      "=https",
+      "--user-agent",
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0",
+      "--referer",
+      "https://voe.sx/",
+      "--config",
+      "-"
+     ],
+     "timeout": 20
+    },
+    {
+     "cwd": "<WORK>",
+     "input_text": "url = \"https://cdn.example/v.mp4?sig=geheim\"\n",
+     "run": [
+      "<CURL>",
+      "--range",
+      "0-0",
+      "--dump-header",
+      "-",
+      "--output",
+      "nul",
+      "--disable",
+      "--silent",
+      "--fail",
+      "--max-time",
+      "15",
+      "--connect-timeout",
+      "5",
+      "--noproxy",
+      "*",
+      "--proto",
+      "=https",
+      "--user-agent",
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0",
+      "--referer",
+      "https://voe.sx/",
+      "--config",
+      "-"
+     ],
+     "timeout": 20
+    }
+   ],
+   "size": null
+  },
+  "range_fallback": {
+   "log": [
+    {
+     "public_host": "cdn.example"
+    },
+    {
+     "cwd": "<WORK>",
+     "input_text": "url = \"https://cdn.example/v.mp4?sig=geheim\"\n",
+     "run": [
+      "<CURL>",
+      "--head",
+      "--disable",
+      "--silent",
+      "--fail",
+      "--max-time",
+      "15",
+      "--connect-timeout",
+      "5",
+      "--noproxy",
+      "*",
+      "--proto",
+      "=https",
+      "--user-agent",
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0",
+      "--referer",
+      "https://voe.sx/",
+      "--config",
+      "-"
+     ],
+     "timeout": 20
+    },
+    {
+     "cwd": "<WORK>",
+     "input_text": "url = \"https://cdn.example/v.mp4?sig=geheim\"\n",
+     "run": [
+      "<CURL>",
+      "--range",
+      "0-0",
+      "--dump-header",
+      "-",
+      "--output",
+      "nul",
+      "--disable",
+      "--silent",
+      "--fail",
+      "--max-time",
+      "15",
+      "--connect-timeout",
+      "5",
+      "--noproxy",
+      "*",
+      "--proto",
+      "=https",
+      "--user-agent",
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0",
+      "--referer",
+      "https://voe.sx/",
+      "--config",
+      "-"
+     ],
+     "timeout": 20
+    }
+   ],
+   "size": 9000
+  },
+  "redirect_hop": {
+   "log": [
+    {
+     "public_host": "cdn.example"
+    },
+    {
+     "cwd": "<WORK>",
+     "input_text": "url = \"https://cdn.example/v.mp4?sig=geheim\"\n",
+     "run": [
+      "<CURL>",
+      "--head",
+      "--disable",
+      "--silent",
+      "--fail",
+      "--max-time",
+      "15",
+      "--connect-timeout",
+      "5",
+      "--noproxy",
+      "*",
+      "--proto",
+      "=https",
+      "--user-agent",
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0",
+      "--referer",
+      "https://voe.sx/",
+      "--config",
+      "-"
+     ],
+     "timeout": 20
+    },
+    {
+     "public_host": "cdn2.example"
+    },
+    {
+     "cwd": "<WORK>",
+     "input_text": "url = \"https://cdn2.example/v.mp4?sig=zwei\"\n",
+     "run": [
+      "<CURL>",
+      "--head",
+      "--disable",
+      "--silent",
+      "--fail",
+      "--max-time",
+      "15",
+      "--connect-timeout",
+      "5",
+      "--noproxy",
+      "*",
+      "--proto",
+      "=https",
+      "--user-agent",
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0",
+      "--referer",
+      "https://voe.sx/",
+      "--config",
+      "-"
+     ],
+     "timeout": 20
+    }
+   ],
+   "size": 800
+  },
+  "redirect_private": {
+   "log": [
+    {
+     "public_host": "cdn.example"
+    },
+    {
+     "cwd": "<WORK>",
+     "input_text": "url = \"https://cdn.example/v.mp4?sig=geheim\"\n",
+     "run": [
+      "<CURL>",
+      "--head",
+      "--disable",
+      "--silent",
+      "--fail",
+      "--max-time",
+      "15",
+      "--connect-timeout",
+      "5",
+      "--noproxy",
+      "*",
+      "--proto",
+      "=https",
+      "--user-agent",
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0",
+      "--referer",
+      "https://voe.sx/",
+      "--config",
+      "-"
+     ],
+     "timeout": 20
+    },
+    {
+     "public_host": "127.0.0.1"
+    }
+   ],
+   "size": null
+  }
+ },
+ "network": {
+  "A_mullvad": {
+   "log": [
+    {
+     "run": [
+      "<POWERSHELL>",
+      "-NoLogo",
+      "-NoProfile",
+      "-NonInteractive",
+      "-ExecutionPolicy",
+      "Restricted",
+      "-EncodedCommand",
+      "<ENC:STATE_SCRIPT>"
+     ],
+     "timeout": 60
+    },
+    {
+     "detail": "ProtonVPN · 10.2.0.2",
+     "emit": "check",
+     "key": "vpn",
+     "ok": true
+    },
+    {
+     "detail": "5 Programme gesperrt ausser ueber das VPN",
+     "emit": "check",
+     "key": "firewall",
+     "ok": true
+    },
+    {
+     "run": [
+      "<PY>",
+      "-I",
+      "-c",
+      "<SELFTEST_CODE>",
+      "192.168.178.20"
+     ],
+     "timeout": 19
+    },
+    {
+     "detail": "1 andere Adresse(n) blockiert oder ohne Weg ins Netz",
+     "emit": "check",
+     "key": "selftest",
+     "ok": true
+    },
+    {
+     "run": [
+      "<CURL>",
+      "--disable",
+      "--silent",
+      "--show-error",
+      "--fail",
+      "--max-time",
+      "10",
+      "--connect-timeout",
+      "5",
+      "--noproxy",
+      "*",
+      "-4",
+      "--proto",
+      "=https",
+      "--max-filesize",
+      "1048576",
+      "https://am.i.mullvad.net/json"
+     ],
+     "timeout": 12
+    },
+    {
+     "detail": "185.159.157.10 · Switzerland · Proton AG (Quelle am.i.mullvad.net)",
+     "emit": "check",
+     "key": "ipv4",
+     "label": "IPv4 Statuspruefung",
+     "ok": true
+    },
+    {
+     "run": [
+      "<CURL>",
+      "--disable",
+      "--silent",
+      "--show-error",
+      "--fail",
+      "--max-time",
+      "10",
+      "--connect-timeout",
+      "5",
+      "--noproxy",
+      "*",
+      "-6",
+      "--proto",
+      "=https",
+      "--max-filesize",
+      "1048576",
+      "https://ipv6.am.i.mullvad.net/json"
+     ],
+     "timeout": 12
+    },
+    {
+     "detail": "Kein IPv6-Weg ins Internet",
+     "emit": "check",
+     "key": "ipv6",
+     "ok": true
+    },
+    {
+     "run": [
+      "<NSLOOKUP>",
+      "-type=TXT",
+      "-timeout=3",
+      "-retry=1",
+      "o-o.myaddr.l.google.com"
+     ],
+     "timeout": 20
+    },
+    {
+     "detail": "185.159.157.10 · Switzerland · Proton AG (Quelle am.i.mullvad.net)",
+     "emit": "check",
+     "key": "dns",
+     "label": "DNS",
+     "ok": true
+    },
+    {
+     "run": [
+      "<POWERSHELL>",
+      "-NoLogo",
+      "-NoProfile",
+      "-NonInteractive",
+      "-ExecutionPolicy",
+      "Restricted",
+      "-EncodedCommand",
+      "<ENC:QUICK_STATE_SCRIPT>"
+     ],
+     "timeout": 60
+    },
+    {
+     "detail": "ProtonVPN · 10.2.0.2",
+     "emit": "check",
+     "key": "vpn",
+     "ok": true
+    },
+    {
+     "detail": "5 Programme gesperrt ausser ueber das VPN",
+     "emit": "check",
+     "key": "firewall",
+     "ok": true
+    },
+    {
+     "run": [
+      "<CURL>",
+      "--disable",
+      "--silent",
+      "--show-error",
+      "--fail",
+      "--max-time",
+      "10",
+      "--connect-timeout",
+      "5",
+      "--noproxy",
+      "*",
+      "-4",
+      "--proto",
+      "=https",
+      "--max-filesize",
+      "1048576",
+      "https://am.i.mullvad.net/json"
+     ],
+     "timeout": 12
+    },
+    {
+     "detail": "185.159.157.10 · Switzerland · Proton AG (Quelle am.i.mullvad.net)",
+     "emit": "check",
+     "key": "ipv4",
+     "label": "IPv4 vor Transfer",
+     "ok": true
+    },
+    {
+     "run": [
+      "<CURL>",
+      "--disable",
+      "--silent",
+      "--show-error",
+      "--fail",
+      "--max-time",
+      "10",
+      "--connect-timeout",
+      "5",
+      "--noproxy",
+      "*",
+      "-6",
+      "--proto",
+      "=https",
+      "--max-filesize",
+      "1048576",
+      "https://ipv6.am.i.mullvad.net/json"
+     ],
+     "timeout": 12
+    },
+    {
+     "detail": "Kein IPv6-Weg ins Internet",
+     "emit": "check",
+     "key": "ipv6",
+     "ok": true
+    },
+    {
+     "run": [
+      "<NSLOOKUP>",
+      "-type=TXT",
+      "-timeout=3",
+      "-retry=1",
+      "o-o.myaddr.l.google.com"
+     ],
+     "timeout": 20
+    },
+    {
+     "detail": "185.159.157.10 · Switzerland · Proton AG (Quelle am.i.mullvad.net)",
+     "emit": "check",
+     "key": "dns",
+     "label": "DNS",
+     "ok": true
+    }
+   ],
+   "returns": [
+    "185.159.157.10",
+    "185.159.157.10"
+   ],
+   "stdout": "Netzsperre: Selbsttest bestanden (1 Nicht-VPN-Adresse(n) blockiert oder ohne Weg ins Netz).\nIPv4 Statuspruefung: IP 185.159.157.10 | Switzerland | Proton AG | Quelle am.i.mullvad.net\nIPv6: kein Internetpfad nachgewiesen (kein Beleg fuer einen sicheren Pfad).\nDNS: sichtbar rekursiver Ausgang: 185.159.157.10\nDNS: IP 185.159.157.10 | Switzerland | Proton AG | Quelle am.i.mullvad.net\nIPv4 vor Transfer: IP 185.159.157.10 | Switzerland | Proton AG | Quelle am.i.mullvad.net\nIPv6: kein Internetpfad nachgewiesen (kein Beleg fuer einen sicheren Pfad).\nDNS: sichtbar rekursiver Ausgang: 185.159.157.10\nDNS: IP 185.159.157.10 | Switzerland | Proton AG | Quelle am.i.mullvad.net\n"
+  },
+  "B_fallbacks": {
+   "log": [
+    {
+     "run": [
+      "<POWERSHELL>",
+      "-NoLogo",
+      "-NoProfile",
+      "-NonInteractive",
+      "-ExecutionPolicy",
+      "Restricted",
+      "-EncodedCommand",
+      "<ENC:STATE_SCRIPT>"
+     ],
+     "timeout": 60
+    },
+    {
+     "detail": "ProtonVPN · 10.2.0.2",
+     "emit": "check",
+     "key": "vpn",
+     "ok": true
+    },
+    {
+     "detail": "5 Programme gesperrt ausser ueber das VPN",
+     "emit": "check",
+     "key": "firewall",
+     "ok": true
+    },
+    {
+     "run": [
+      "<PY>",
+      "-I",
+      "-c",
+      "<SELFTEST_CODE>",
+      "192.168.178.20"
+     ],
+     "timeout": 19
+    },
+    {
+     "detail": "1 andere Adresse(n) blockiert oder ohne Weg ins Netz",
+     "emit": "check",
+     "key": "selftest",
+     "ok": true
+    },
+    {
+     "run": [
+      "<CURL>",
+      "--disable",
+      "--silent",
+      "--show-error",
+      "--fail",
+      "--max-time",
+      "10",
+      "--connect-timeout",
+      "5",
+      "--noproxy",
+      "*",
+      "-4",
+      "--proto",
+      "=https",
+      "--max-filesize",
+      "1048576",
+      "https://am.i.mullvad.net/json"
+     ],
+     "timeout": 12
+    },
+    {
+     "sleep": 2
+    },
+    {
+     "run": [
+      "<CURL>",
+      "--disable",
+      "--silent",
+      "--show-error",
+      "--fail",
+      "--max-time",
+      "10",
+      "--connect-timeout",
+      "5",
+      "--noproxy",
+      "*",
+      "-4",
+      "--proto",
+      "=https",
+      "--max-filesize",
+      "1048576",
+      "https://am.i.mullvad.net/json"
+     ],
+     "timeout": 12
+    },
+    {
+     "sleep": 2
+    },
+    {
+     "run": [
+      "<CURL>",
+      "--disable",
+      "--silent",
+      "--show-error",
+      "--fail",
+      "--max-time",
+      "10",
+      "--connect-timeout",
+      "5",
+      "--noproxy",
+      "*",
+      "-4",
+      "--proto",
+      "=https",
+      "--max-filesize",
+      "1048576",
+      "https://am.i.mullvad.net/json"
+     ],
+     "timeout": 12
+    },
+    {
+     "run": [
+      "<CURL>",
+      "--disable",
+      "--silent",
+      "--show-error",
+      "--fail",
+      "--max-time",
+      "10",
+      "--connect-timeout",
+      "5",
+      "--noproxy",
+      "*",
+      "-4",
+      "--proto",
+      "=https",
+      "--max-filesize",
+      "1048576",
+      "https://ipapi.co/json/"
+     ],
+     "timeout": 12
+    },
+    {
+     "detail": "185.159.157.10 · CH · Proton AG (Quelle ipapi.co)",
+     "emit": "check",
+     "key": "ipv4",
+     "label": "IPv4 vor Probe",
+     "ok": true
+    },
+    {
+     "run": [
+      "<CURL>",
+      "--disable",
+      "--silent",
+      "--show-error",
+      "--fail",
+      "--max-time",
+      "10",
+      "--connect-timeout",
+      "5",
+      "--noproxy",
+      "*",
+      "-6",
+      "--proto",
+      "=https",
+      "--max-filesize",
+      "1048576",
+      "https://ipv6.am.i.mullvad.net/json"
+     ],
+     "timeout": 12
+    },
+    {
+     "detail": "2a07:b944::1 · Switzerland · Proton AG (Quelle am.i.mullvad.net)",
+     "emit": "check",
+     "key": "ipv6",
+     "label": "IPv6",
+     "ok": true
+    },
+    {
+     "run": [
+      "<NSLOOKUP>",
+      "-type=TXT",
+      "-timeout=3",
+      "-retry=1",
+      "o-o.myaddr.l.google.com"
+     ],
+     "timeout": 20
+    },
+    {
+     "run": [
+      "<CURL>",
+      "--disable",
+      "--silent",
+      "--show-error",
+      "--fail",
+      "--max-time",
+      "10",
+      "--connect-timeout",
+      "5",
+      "--noproxy",
+      "*",
+      "-4",
+      "--proto",
+      "=https",
+      "--max-filesize",
+      "1048576",
+      "https://ipapi.co/185.159.157.53/json/"
+     ],
+     "timeout": 12
+    },
+    {
+     "run": [
+      "<CURL>",
+      "--disable",
+      "--silent",
+      "--show-error",
+      "--fail",
+      "--max-time",
+      "10",
+      "--connect-timeout",
+      "5",
+      "--noproxy",
+      "*",
+      "-4",
+      "--proto",
+      "=https",
+      "--max-filesize",
+      "1048576",
+      "https://ipinfo.io/185.159.157.53/json"
+     ],
+     "timeout": 12
+    },
+    {
+     "detail": "185.159.157.53 · CH · AS62371 Proton AG (Quelle ipinfo.io)",
+     "emit": "check",
+     "key": "dns",
+     "label": "DNS",
+     "ok": true
+    },
+    {
+     "run": [
+      "<POWERSHELL>",
+      "-NoLogo",
+      "-NoProfile",
+      "-NonInteractive",
+      "-ExecutionPolicy",
+      "Restricted",
+      "-EncodedCommand",
+      "<ENC:QUICK_STATE_SCRIPT>"
+     ],
+     "timeout": 60
+    },
+    {
+     "detail": "ProtonVPN · 10.2.0.2",
+     "emit": "check",
+     "key": "vpn",
+     "ok": true
+    },
+    {
+     "detail": "5 Programme gesperrt ausser ueber das VPN",
+     "emit": "check",
+     "key": "firewall",
+     "ok": true
+    },
+    {
+     "run": [
+      "<CURL>",
+      "--disable",
+      "--silent",
+      "--show-error",
+      "--fail",
+      "--max-time",
+      "10",
+      "--connect-timeout",
+      "5",
+      "--noproxy",
+      "*",
+      "-4",
+      "--proto",
+      "=https",
+      "--max-filesize",
+      "1048576",
+      "https://am.i.mullvad.net/json"
+     ],
+     "timeout": 12
+    },
+    {
+     "sleep": 2
+    },
+    {
+     "run": [
+      "<CURL>",
+      "--disable",
+      "--silent",
+      "--show-error",
+      "--fail",
+      "--max-time",
+      "10",
+      "--connect-timeout",
+      "5",
+      "--noproxy",
+      "*",
+      "-4",
+      "--proto",
+      "=https",
+      "--max-filesize",
+      "1048576",
+      "https://am.i.mullvad.net/json"
+     ],
+     "timeout": 12
+    },
+    {
+     "sleep": 2
+    },
+    {
+     "run": [
+      "<CURL>",
+      "--disable",
+      "--silent",
+      "--show-error",
+      "--fail",
+      "--max-time",
+      "10",
+      "--connect-timeout",
+      "5",
+      "--noproxy",
+      "*",
+      "-4",
+      "--proto",
+      "=https",
+      "--max-filesize",
+      "1048576",
+      "https://am.i.mullvad.net/json"
+     ],
+     "timeout": 12
+    },
+    {
+     "run": [
+      "<CURL>",
+      "--disable",
+      "--silent",
+      "--show-error",
+      "--fail",
+      "--max-time",
+      "10",
+      "--connect-timeout",
+      "5",
+      "--noproxy",
+      "*",
+      "-4",
+      "--proto",
+      "=https",
+      "--max-filesize",
+      "1048576",
+      "https://ipapi.co/json/"
+     ],
+     "timeout": 12
+    },
+    {
+     "detail": "185.159.157.10 · CH · Proton AG (Quelle ipapi.co)",
+     "emit": "check",
+     "key": "ipv4",
+     "label": "IPv4 nach Probe",
+     "ok": true
+    },
+    {
+     "run": [
+      "<CURL>",
+      "--disable",
+      "--silent",
+      "--show-error",
+      "--fail",
+      "--max-time",
+      "10",
+      "--connect-timeout",
+      "5",
+      "--noproxy",
+      "*",
+      "-6",
+      "--proto",
+      "=https",
+      "--max-filesize",
+      "1048576",
+      "https://ipv6.am.i.mullvad.net/json"
+     ],
+     "timeout": 12
+    },
+    {
+     "detail": "2a07:b944::1 · Switzerland · Proton AG (Quelle am.i.mullvad.net)",
+     "emit": "check",
+     "key": "ipv6",
+     "label": "IPv6",
+     "ok": true
+    },
+    {
+     "run": [
+      "<NSLOOKUP>",
+      "-type=TXT",
+      "-timeout=3",
+      "-retry=1",
+      "o-o.myaddr.l.google.com"
+     ],
+     "timeout": 20
+    },
+    {
+     "detail": "185.159.157.53 · CH · AS62371 Proton AG (Quelle ipinfo.io)",
+     "emit": "check",
+     "key": "dns",
+     "label": "DNS",
+     "ok": true
+    },
+    {
+     "run": [
+      "<POWERSHELL>",
+      "-NoLogo",
+      "-NoProfile",
+      "-NonInteractive",
+      "-ExecutionPolicy",
+      "Restricted",
+      "-EncodedCommand",
+      "<ENC:QUICK_STATE_SCRIPT>"
+     ],
+     "timeout": 60
+    },
+    {
+     "detail": "ProtonVPN · 10.2.0.2",
+     "emit": "check",
+     "key": "vpn",
+     "ok": true
+    },
+    {
+     "detail": "5 Programme gesperrt ausser ueber das VPN",
+     "emit": "check",
+     "key": "firewall",
+     "ok": true
+    },
+    {
+     "run": [
+      "<CURL>",
+      "--disable",
+      "--silent",
+      "--show-error",
+      "--fail",
+      "--max-time",
+      "10",
+      "--connect-timeout",
+      "5",
+      "--noproxy",
+      "*",
+      "-4",
+      "--proto",
+      "=https",
+      "--max-filesize",
+      "1048576",
+      "https://am.i.mullvad.net/json"
+     ],
+     "timeout": 12
+    },
+    {
+     "sleep": 2
+    },
+    {
+     "run": [
+      "<CURL>",
+      "--disable",
+      "--silent",
+      "--show-error",
+      "--fail",
+      "--max-time",
+      "10",
+      "--connect-timeout",
+      "5",
+      "--noproxy",
+      "*",
+      "-4",
+      "--proto",
+      "=https",
+      "--max-filesize",
+      "1048576",
+      "https://am.i.mullvad.net/json"
+     ],
+     "timeout": 12
+    },
+    {
+     "sleep": 2
+    },
+    {
+     "run": [
+      "<CURL>",
+      "--disable",
+      "--silent",
+      "--show-error",
+      "--fail",
+      "--max-time",
+      "10",
+      "--connect-timeout",
+      "5",
+      "--noproxy",
+      "*",
+      "-4",
+      "--proto",
+      "=https",
+      "--max-filesize",
+      "1048576",
+      "https://am.i.mullvad.net/json"
+     ],
+     "timeout": 12
+    },
+    {
+     "run": [
+      "<CURL>",
+      "--disable",
+      "--silent",
+      "--show-error",
+      "--fail",
+      "--max-time",
+      "10",
+      "--connect-timeout",
+      "5",
+      "--noproxy",
+      "*",
+      "-4",
+      "--proto",
+      "=https",
+      "--max-filesize",
+      "1048576",
+      "https://ipapi.co/json/"
+     ],
+     "timeout": 12
+    },
+    {
+     "detail": "185.159.157.10 · CH · Proton AG (Quelle ipapi.co)",
+     "emit": "check",
+     "key": "ipv4",
+     "label": "IPv4 nach Transfer/Remux",
+     "ok": true
+    },
+    {
+     "run": [
+      "<CURL>",
+      "--disable",
+      "--silent",
+      "--show-error",
+      "--fail",
+      "--max-time",
+      "10",
+      "--connect-timeout",
+      "5",
+      "--noproxy",
+      "*",
+      "-6",
+      "--proto",
+      "=https",
+      "--max-filesize",
+      "1048576",
+      "https://ipv6.am.i.mullvad.net/json"
+     ],
+     "timeout": 12
+    },
+    {
+     "detail": "2a07:b944::1 · Switzerland · Proton AG (Quelle am.i.mullvad.net)",
+     "emit": "check",
+     "key": "ipv6",
+     "label": "IPv6",
+     "ok": true
+    },
+    {
+     "run": [
+      "<NSLOOKUP>",
+      "-type=TXT",
+      "-timeout=3",
+      "-retry=1",
+      "o-o.myaddr.l.google.com"
+     ],
+     "timeout": 20
+    },
+    {
+     "detail": "185.159.157.53 · CH · AS62371 Proton AG (Quelle ipinfo.io)",
+     "emit": "check",
+     "key": "dns",
+     "label": "DNS",
+     "ok": true
+    }
+   ],
+   "returns": [
+    "185.159.157.10",
+    "185.159.157.10",
+    {
+     "code": 2,
+     "failure": "EXIT_IP_CHANGED"
+    }
+   ],
+   "stdout": "Netzsperre: Selbsttest bestanden (1 Nicht-VPN-Adresse(n) blockiert oder ohne Weg ins Netz).\nStatus-Fallback: Quelle ipapi.co (Mullvad nach drei Versuchen unbrauchbar).\nIPv4 vor Probe: IP 185.159.157.10 | Switzerland | Proton AG | Quelle ipapi.co\nIPv6: IP 2a07:b944::1 | Switzerland | Proton AG | Quelle am.i.mullvad.net\nDNS: sichtbar rekursiver Ausgang: 185.159.157.53\nDNS: IP 185.159.157.53 | CH | AS62371 Proton AG | Quelle ipinfo.io\nStatus-Fallback: Quelle ipapi.co (Mullvad nach drei Versuchen unbrauchbar).\nIPv4 nach Probe: IP 185.159.157.10 | Switzerland | Proton AG | Quelle ipapi.co\nIPv6: IP 2a07:b944::1 | Switzerland | Proton AG | Quelle am.i.mullvad.net\nDNS: sichtbar rekursiver Ausgang: 185.159.157.53\nDNS: IP 185.159.157.53 | CH | AS62371 Proton AG | Quelle ipinfo.io\nStatus-Fallback: Quelle ipapi.co (Mullvad nach drei Versuchen unbrauchbar).\nIPv4 nach Transfer/Remux: IP 185.159.157.10 | Switzerland | Proton AG | Quelle ipapi.co\nIPv6: IP 2a07:b944::1 | Switzerland | Proton AG | Quelle am.i.mullvad.net\nDNS: sichtbar rekursiver Ausgang: 185.159.157.53\nDNS: IP 185.159.157.53 | CH | AS62371 Proton AG | Quelle ipinfo.io\n"
+  },
+  "C_home_country": {
+   "log": [
+    {
+     "run": [
+      "<POWERSHELL>",
+      "-NoLogo",
+      "-NoProfile",
+      "-NonInteractive",
+      "-ExecutionPolicy",
+      "Restricted",
+      "-EncodedCommand",
+      "<ENC:STATE_SCRIPT>"
+     ],
+     "timeout": 60
+    },
+    {
+     "detail": "ProtonVPN · 10.2.0.2",
+     "emit": "check",
+     "key": "vpn",
+     "ok": true
+    },
+    {
+     "detail": "5 Programme gesperrt ausser ueber das VPN",
+     "emit": "check",
+     "key": "firewall",
+     "ok": true
+    },
+    {
+     "run": [
+      "<PY>",
+      "-I",
+      "-c",
+      "<SELFTEST_CODE>",
+      "192.168.178.20"
+     ],
+     "timeout": 19
+    },
+    {
+     "detail": "1 andere Adresse(n) blockiert oder ohne Weg ins Netz",
+     "emit": "check",
+     "key": "selftest",
+     "ok": true
+    },
+    {
+     "run": [
+      "<CURL>",
+      "--disable",
+      "--silent",
+      "--show-error",
+      "--fail",
+      "--max-time",
+      "10",
+      "--connect-timeout",
+      "5",
+      "--noproxy",
+      "*",
+      "-4",
+      "--proto",
+      "=https",
+      "--max-filesize",
+      "1048576",
+      "https://am.i.mullvad.net/json"
+     ],
+     "timeout": 12
+    },
+    {
+     "detail": "185.159.157.10 · Germany · Proton AG (Quelle am.i.mullvad.net)",
+     "emit": "check",
+     "key": "ipv4",
+     "label": "IPv4 Statuspruefung",
+     "ok": false
+    }
+   ],
+   "returns": {
+    "code": 2,
+    "failure": "HOME_COUNTRY_DETECTED"
+   },
+   "stdout": "Netzsperre: Selbsttest bestanden (1 Nicht-VPN-Adresse(n) blockiert oder ohne Weg ins Netz).\nIPv4 Statuspruefung: IP 185.159.157.10 | Germany | Proton AG | Quelle am.i.mullvad.net\n"
+  },
+  "D_skip": {
+   "log": [
+    {
+     "run": [
+      "<POWERSHELL>",
+      "-NoLogo",
+      "-NoProfile",
+      "-NonInteractive",
+      "-ExecutionPolicy",
+      "Restricted",
+      "-EncodedCommand",
+      "<ENC:STATE_SCRIPT>"
+     ],
+     "timeout": 60
+    },
+    {
+     "detail": "ProtonVPN · 10.2.0.2",
+     "emit": "check",
+     "key": "vpn",
+     "ok": true
+    },
+    {
+     "detail": "5 Programme gesperrt ausser ueber das VPN",
+     "emit": "check",
+     "key": "firewall",
+     "ok": true
+    },
+    {
+     "run": [
+      "<PY>",
+      "-I",
+      "-c",
+      "<SELFTEST_CODE>",
+      "192.168.178.20"
+     ],
+     "timeout": 19
+    },
+    {
+     "detail": "1 andere Adresse(n) blockiert oder ohne Weg ins Netz",
+     "emit": "check",
+     "key": "selftest",
+     "ok": true
+    }
+   ],
+   "returns": null
+  },
+  "json_request": [
+   {
+    "run": [
+     "<CURL>",
+     "--disable",
+     "--silent",
+     "--show-error",
+     "--fail",
+     "--max-time",
+     "10",
+     "--connect-timeout",
+     "5",
+     "--noproxy",
+     "*",
+     "-4",
+     "--proto",
+     "=https",
+     "--max-filesize",
+     "1048576",
+     "https://am.i.mullvad.net/json"
+    ],
+    "timeout": 12
+   },
+   {
+    "run": [
+     "<CURL>",
+     "--disable",
+     "--silent",
+     "--show-error",
+     "--fail",
+     "--max-time",
+     "10",
+     "--connect-timeout",
+     "5",
+     "--noproxy",
+     "*",
+     "-4",
+     "--proto",
+     "=https",
+     "--max-filesize",
+     "1048576",
+     "https://ipapi.co/json/"
+    ],
+    "timeout": 12
+   },
+   {
+    "run": [
+     "<CURL>",
+     "--disable",
+     "--silent",
+     "--show-error",
+     "--fail",
+     "--max-time",
+     "10",
+     "--connect-timeout",
+     "5",
+     "--noproxy",
+     "*",
+     "-6",
+     "--proto",
+     "=https",
+     "--max-filesize",
+     "1048576",
+     "https://ipv6.am.i.mullvad.net/json"
+    ],
+    "timeout": 12
+   },
+   {
+    "run": [
+     "<CURL>",
+     "--disable",
+     "--silent",
+     "--show-error",
+     "--fail",
+     "--max-time",
+     "10",
+     "--connect-timeout",
+     "5",
+     "--noproxy",
+     "*",
+     "-4",
+     "--proto",
+     "=https",
+     "--max-filesize",
+     "1048576",
+     "https://ipinfo.io/1.1.1.1/json"
+    ],
+    "timeout": 12
+   }
+  ]
+ },
+ "preview_sizes": {
+  "preview": {
+   "code": 0,
+   "log": [
+    {
+     "emit": "phase",
+     "phase": "preview"
+    },
+    {
+     "check": "IPv4 vor Vorschau",
+     "expected": null
+    },
+    {
+     "emit": "preview_start",
+     "index": 0
+    },
+    {
+     "check": "IPv4 vor Vorschau-Eintrag",
+     "expected": "185.159.157.10"
+    },
+    {
+     "cwd": "<WORK>",
+     "run": [
+      "<PY>",
+      "-I",
+      "<APP>\\voe_resolver.py",
+      "https://voe.sx/e/abc123",
+      "[\"voe.sx\", \"susanexpectcare.com\", \"shannoncoldalready.com\", \"caseyseemavoid.com\"]"
+     ],
+     "timeout": 120
+    },
+    {
+     "emit": "preview",
+     "index": 0,
+     "name": "Big_Buck_Bunny",
+     "ok": true
+    },
+    {
+     "emit": "preview_start",
+     "index": 1
+    },
+    {
+     "check": "IPv4 vor Vorschau-Eintrag",
+     "expected": "185.159.157.10"
+    },
+    {
+     "cwd": "<WORK>",
+     "run": [
+      "<PY>",
+      "-I",
+      "-m",
+      "yt_dlp",
+      "--ignore-config",
+      "--no-plugin-dirs",
+      "--no-cache-dir",
+      "--no-playlist",
+      "--no-js-runtimes",
+      "--no-remote-components",
+      "--proxy",
+      "",
+      "--socket-timeout",
+      "20",
+      "--retries",
+      "0",
+      "--fragment-retries",
+      "0",
+      "--extractor-retries",
+      "0",
+      "--file-access-retries",
+      "0",
+      "--no-write-info-json",
+      "--no-write-thumbnail",
+      "--no-write-subs",
+      "--no-write-auto-subs",
+      "--referer",
+      "https://kaputt.example/",
+      "--user-agent",
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0",
+      "--ffmpeg-location",
+      "<APP>\\tools",
+      "--skip-download",
+      "--dump-single-json",
+      "--",
+      "https://kaputt.example/video/2"
+     ],
+     "timeout": 120
+    },
+    {
+     "check": "IPv4 vor Weiterleitungs-Aufloesung",
+     "expected": "185.159.157.10"
+    },
+    {
+     "cwd": "<WORK>",
+     "run": [
+      "<PY>",
+      "-I",
+      "<APP>\\voe_resolver.py",
+      "https://kaputt.example/video/2",
+      "[\"voe.sx\", \"susanexpectcare.com\", \"shannoncoldalready.com\", \"caseyseemavoid.com\"]"
+     ],
+     "timeout": 120
+    },
+    {
+     "code": 4,
+     "emit": "preview",
+     "ident": "LINK_RESOLUTION_FAILED",
+     "index": 1,
+     "message": "Link nicht aufloesbar (yt-dlp Exit=1, Timeout=False): ERROR: [generic] 404 Not Found",
+     "ok": false
+    },
+    {
+     "check": "IPv4 nach Vorschau",
+     "expected": "185.159.157.10"
+    },
+    {
+     "emit": "previewed",
+     "failed": 1,
+     "total": 2
+    }
+   ],
+   "stdout": "Pruefe Link 1/2...\n1. OK: Big_Buck_Bunny\nPruefe Link 2/2...\n2. FEHLER: Link nicht aufloesbar (yt-dlp Exit=1, Timeout=False): ERROR: [generic] 404 Not Found\n"
+  },
+  "preview_fatal": {
+   "log": [
+    {
+     "emit": "phase",
+     "phase": "preview"
+    },
+    {
+     "check": "IPv4 vor Vorschau",
+     "expected": null
+    },
+    {
+     "emit": "preview_start",
+     "index": 0
+    },
+    {
+     "check": "IPv4 vor Vorschau-Eintrag",
+     "expected": "185.159.157.10"
+    },
+    {
+     "cwd": "<WORK>",
+     "run": [
+      "<PY>",
+      "-I",
+      "<APP>\\voe_resolver.py",
+      "https://voe.sx/e/abc123",
+      "[\"voe.sx\", \"susanexpectcare.com\", \"shannoncoldalready.com\", \"caseyseemavoid.com\"]"
+     ],
+     "timeout": 120
+    },
+    {
+     "emit": "preview",
+     "index": 0,
+     "name": "Big_Buck_Bunny",
+     "ok": true
+    },
+    {
+     "emit": "preview_start",
+     "index": 1
+    },
+    {
+     "check": "IPv4 vor Vorschau-Eintrag",
+     "expected": "185.159.157.10"
+    }
+   ],
+   "returns": {
+    "code": 2,
+    "failure": "EXIT_IP_CHANGED"
+   }
+  },
+  "sizes": {
+   "code": 0,
+   "log": [
+    {
+     "emit": "phase",
+     "phase": "sizes"
+    },
+    {
+     "check": "IPv4 vor Groessenabfrage",
+     "expected": null
+    },
+    {
+     "emit": "size_start",
+     "index": 0
+    },
+    {
+     "check": "IPv4 vor Groessen-Eintrag",
+     "expected": "185.159.157.10"
+    },
+    {
+     "cwd": "<WORK>",
+     "run": [
+      "<PY>",
+      "-I",
+      "<APP>\\voe_resolver.py",
+      "https://voe.sx/e/abc123",
+      "[\"voe.sx\", \"susanexpectcare.com\", \"shannoncoldalready.com\", \"caseyseemavoid.com\"]"
+     ],
+     "timeout": 120
+    },
+    {
+     "cwd": "<WORK>",
+     "input_text": "url = \"https://cdn.example/v.mp4?sig=geheim\"\n",
+     "run": [
+      "<CURL>",
+      "--head",
+      "--disable",
+      "--silent",
+      "--fail",
+      "--max-time",
+      "15",
+      "--connect-timeout",
+      "5",
+      "--noproxy",
+      "*",
+      "--proto",
+      "=https",
+      "--user-agent",
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0",
+      "--referer",
+      "https://voe.sx/",
+      "--config",
+      "-"
+     ],
+     "timeout": 20
+    },
+    {
+     "bytes": 5000000,
+     "emit": "size",
+     "index": 0
+    },
+    {
+     "emit": "size_start",
+     "index": 1
+    },
+    {
+     "check": "IPv4 vor Groessen-Eintrag",
+     "expected": "185.159.157.10"
+    },
+    {
+     "cwd": "<WORK>",
+     "run": [
+      "<PY>",
+      "-I",
+      "-m",
+      "yt_dlp",
+      "--ignore-config",
+      "--no-plugin-dirs",
+      "--no-cache-dir",
+      "--no-playlist",
+      "--no-js-runtimes",
+      "--no-remote-components",
+      "--proxy",
+      "",
+      "--socket-timeout",
+      "20",
+      "--retries",
+      "0",
+      "--fragment-retries",
+      "0",
+      "--extractor-retries",
+      "0",
+      "--file-access-retries",
+      "0",
+      "--no-write-info-json",
+      "--no-write-thumbnail",
+      "--no-write-subs",
+      "--no-write-auto-subs",
+      "--referer",
+      "https://kaputt.example/",
+      "--user-agent",
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0",
+      "--ffmpeg-location",
+      "<APP>\\tools",
+      "--skip-download",
+      "--dump-single-json",
+      "--",
+      "https://kaputt.example/video/2"
+     ],
+     "timeout": 120
+    },
+    {
+     "check": "IPv4 vor Weiterleitungs-Aufloesung",
+     "expected": "185.159.157.10"
+    },
+    {
+     "cwd": "<WORK>",
+     "run": [
+      "<PY>",
+      "-I",
+      "<APP>\\voe_resolver.py",
+      "https://kaputt.example/video/2",
+      "[\"voe.sx\", \"susanexpectcare.com\", \"shannoncoldalready.com\", \"caseyseemavoid.com\"]"
+     ],
+     "timeout": 120
+    },
+    {
+     "bytes": null,
+     "emit": "size",
+     "index": 1
+    },
+    {
+     "check": "IPv4 nach Groessenabfrage",
+     "expected": "185.159.157.10"
+    },
+    {
+     "emit": "sized",
+     "total": 2
+    }
+   ],
+   "stdout": "Groesse 1/2...\n1. Groesse: 5 MB\nGroesse 2/2...\n2. Groesse unbekannt: Link nicht aufloesbar (yt-dlp Exit=1, Timeout=False): ERROR: [generic] 404 Not Found\n"
+  },
+  "sizes_fatal": {
+   "log": [
+    {
+     "emit": "phase",
+     "phase": "sizes"
+    },
+    {
+     "check": "IPv4 vor Groessenabfrage",
+     "expected": null
+    },
+    {
+     "emit": "size_start",
+     "index": 0
+    },
+    {
+     "check": "IPv4 vor Groessen-Eintrag",
+     "expected": "185.159.157.10"
+    },
+    {
+     "cwd": "<WORK>",
+     "run": [
+      "<PY>",
+      "-I",
+      "<APP>\\voe_resolver.py",
+      "https://voe.sx/e/abc123",
+      "[\"voe.sx\", \"susanexpectcare.com\", \"shannoncoldalready.com\", \"caseyseemavoid.com\"]"
+     ],
+     "timeout": 120
+    },
+    {
+     "cwd": "<WORK>",
+     "input_text": "url = \"https://cdn.example/v.mp4?sig=geheim\"\n",
+     "run": [
+      "<CURL>",
+      "--head",
+      "--disable",
+      "--silent",
+      "--fail",
+      "--max-time",
+      "15",
+      "--connect-timeout",
+      "5",
+      "--noproxy",
+      "*",
+      "--proto",
+      "=https",
+      "--user-agent",
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0",
+      "--referer",
+      "https://voe.sx/",
+      "--config",
+      "-"
+     ],
+     "timeout": 20
+    },
+    {
+     "bytes": 5000000,
+     "emit": "size",
+     "index": 0
+    },
+    {
+     "emit": "size_start",
+     "index": 1
+    },
+    {
+     "check": "IPv4 vor Groessen-Eintrag",
+     "expected": "185.159.157.10"
+    }
+   ],
+   "returns": {
+    "code": 2,
+    "failure": "EXIT_IP_CHANGED"
+   }
+  }
+ },
+ "probe_transfer": {
+  "YDL": [
+   "<PY>",
+   "-I",
+   "-m",
+   "yt_dlp"
+  ],
+  "probe": {
+   "log": [
+    {
+     "check": "IPv4 vor Probe",
+     "expected": null
+    },
+    {
+     "cwd": "<WORK>",
+     "live": true,
+     "run": [
+      "<PY>",
+      "-I",
+      "-m",
+      "yt_dlp",
+      "--ignore-config",
+      "--no-plugin-dirs",
+      "--no-cache-dir",
+      "--no-playlist",
+      "--no-js-runtimes",
+      "--no-remote-components",
+      "--proxy",
+      "",
+      "--socket-timeout",
+      "20",
+      "--retries",
+      "0",
+      "--fragment-retries",
+      "0",
+      "--extractor-retries",
+      "0",
+      "--file-access-retries",
+      "0",
+      "--no-write-info-json",
+      "--no-write-thumbnail",
+      "--no-write-subs",
+      "--no-write-auto-subs",
+      "--referer",
+      "https://download.samplelib.com/",
+      "--user-agent",
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0",
+      "--ffmpeg-location",
+      "<APP>\\tools",
+      "--force-generic-extractor",
+      "--newline",
+      "--no-continue",
+      "-o",
+      "<WORK>\\probe.mp4",
+      "--",
+      "https://download.samplelib.com/mp4/sample-5s.mp4"
+     ],
+     "timeout": 60
+    },
+    {
+     "check": "IPv4 nach Probe",
+     "expected": "185.159.157.10"
+    }
+   ],
+   "returns": "185.159.157.10"
+  },
+  "probe_fails": {
+   "log": [
+    {
+     "check": "IPv4 vor Probe",
+     "expected": null
+    },
+    {
+     "cwd": "<WORK>",
+     "live": true,
+     "run": [
+      "<PY>",
+      "-I",
+      "-m",
+      "yt_dlp",
+      "--ignore-config",
+      "--no-plugin-dirs",
+      "--no-cache-dir",
+      "--no-playlist",
+      "--no-js-runtimes",
+      "--no-remote-components",
+      "--proxy",
+      "",
+      "--socket-timeout",
+      "20",
+      "--retries",
+      "0",
+      "--fragment-retries",
+      "0",
+      "--extractor-retries",
+      "0",
+      "--file-access-retries",
+      "0",
+      "--no-write-info-json",
+      "--no-write-thumbnail",
+      "--no-write-subs",
+      "--no-write-auto-subs",
+      "--referer",
+      "https://download.samplelib.com/",
+      "--user-agent",
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0",
+      "--ffmpeg-location",
+      "<APP>\\tools",
+      "--force-generic-extractor",
+      "--newline",
+      "--no-continue",
+      "-o",
+      "<WORK>\\probe.mp4",
+      "--",
+      "https://download.samplelib.com/mp4/sample-5s.mp4"
+     ],
+     "timeout": 60
+    }
+   ],
+   "returns": {
+    "code": 2,
+    "failure": "PROBE_FAILED"
+   }
+  },
+  "transfer_fails": {
+   "log": [
+    {
+     "check": "IPv4 unmittelbar vor Transfer",
+     "expected": "185.159.157.10"
+    },
+    {
+     "cwd": "<WORK>",
+     "live": true,
+     "run": [
+      "<PY>",
+      "-I",
+      "-m",
+      "yt_dlp",
+      "--http-chunk-size",
+      "10M",
+      "--concurrent-fragments",
+      "4",
+      "--ignore-config",
+      "--no-plugin-dirs",
+      "--no-cache-dir",
+      "--no-playlist",
+      "--no-js-runtimes",
+      "--no-remote-components",
+      "--proxy",
+      "",
+      "--socket-timeout",
+      "20",
+      "--retries",
+      "0",
+      "--fragment-retries",
+      "0",
+      "--extractor-retries",
+      "0",
+      "--file-access-retries",
+      "0",
+      "--no-write-info-json",
+      "--no-write-thumbnail",
+      "--no-write-subs",
+      "--no-write-auto-subs",
+      "--referer",
+      "https://voe.sx/",
+      "--user-agent",
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0",
+      "--ffmpeg-location",
+      "<APP>\\tools",
+      "--newline",
+      "--no-continue",
+      "--abort-on-unavailable-fragments",
+      "--hls-prefer-native",
+      "--fixup",
+      "never",
+      "--merge-output-format",
+      "mkv",
+      "-o",
+      "<WORK>\\raw.%(ext)s",
+      "--print-to-file",
+      "after_move:filepath",
+      "<WORK>\\result-path.txt",
+      "--force-generic-extractor",
+      "--",
+      "https://cdn.example/x.mp4?sig=geheim"
+     ],
+     "timeout": 3600
+    },
+    {
+     "check": "IPv4 vor kompatiblem Retry",
+     "expected": "185.159.157.10"
+    },
+    {
+     "cwd": "<WORK>",
+     "live": true,
+     "run": [
+      "<PY>",
+      "-I",
+      "-m",
+      "yt_dlp",
+      "--ignore-config",
+      "--no-plugin-dirs",
+      "--no-cache-dir",
+      "--no-playlist",
+      "--no-js-runtimes",
+      "--no-remote-components",
+      "--proxy",
+      "",
+      "--socket-timeout",
+      "20",
+      "--retries",
+      "0",
+      "--fragment-retries",
+      "0",
+      "--extractor-retries",
+      "0",
+      "--file-access-retries",
+      "0",
+      "--no-write-info-json",
+      "--no-write-thumbnail",
+      "--no-write-subs",
+      "--no-write-auto-subs",
+      "--referer",
+      "https://voe.sx/",
+      "--user-agent",
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0",
+      "--ffmpeg-location",
+      "<APP>\\tools",
+      "--newline",
+      "--no-continue",
+      "--abort-on-unavailable-fragments",
+      "--hls-prefer-native",
+      "--fixup",
+      "never",
+      "--merge-output-format",
+      "mkv",
+      "-o",
+      "<WORK>\\raw.%(ext)s",
+      "--print-to-file",
+      "after_move:filepath",
+      "<WORK>\\result-path.txt",
+      "--force-generic-extractor",
+      "--",
+      "https://cdn.example/x.mp4?sig=geheim"
+     ],
+     "timeout": 3600
+    }
+   ],
+   "returns": {
+    "code": 4,
+    "failure": "DOWNLOAD_FAILED"
+   }
+  },
+  "transfer_info_json": {
+   "log": [
+    {
+     "check": "IPv4 unmittelbar vor Transfer",
+     "expected": "185.159.157.10"
+    },
+    {
+     "cwd": "<WORK>",
+     "live": true,
+     "run": [
+      "<PY>",
+      "-I",
+      "-m",
+      "yt_dlp",
+      "--http-chunk-size",
+      "10M",
+      "--concurrent-fragments",
+      "4",
+      "--ignore-config",
+      "--no-plugin-dirs",
+      "--no-cache-dir",
+      "--no-playlist",
+      "--no-js-runtimes",
+      "--no-remote-components",
+      "--proxy",
+      "",
+      "--socket-timeout",
+      "20",
+      "--retries",
+      "0",
+      "--fragment-retries",
+      "0",
+      "--extractor-retries",
+      "0",
+      "--file-access-retries",
+      "0",
+      "--no-write-info-json",
+      "--no-write-thumbnail",
+      "--no-write-subs",
+      "--no-write-auto-subs",
+      "--referer",
+      "https://site.example/",
+      "--user-agent",
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0",
+      "--ffmpeg-location",
+      "<APP>\\tools",
+      "--newline",
+      "--no-continue",
+      "--abort-on-unavailable-fragments",
+      "--hls-prefer-native",
+      "--fixup",
+      "never",
+      "--merge-output-format",
+      "mkv",
+      "-o",
+      "<WORK>\\raw.%(ext)s",
+      "--print-to-file",
+      "after_move:filepath",
+      "<WORK>\\result-path.txt",
+      "--load-info-json",
+      "<WORK>\\media.json"
+     ],
+     "timeout": 3600
+    },
+    {
+     "check": "IPv4 vor kompatiblem Retry",
+     "expected": "185.159.157.10"
+    },
+    {
+     "cwd": "<WORK>",
+     "live": true,
+     "run": [
+      "<PY>",
+      "-I",
+      "-m",
+      "yt_dlp",
+      "--ignore-config",
+      "--no-plugin-dirs",
+      "--no-cache-dir",
+      "--no-playlist",
+      "--no-js-runtimes",
+      "--no-remote-components",
+      "--proxy",
+      "",
+      "--socket-timeout",
+      "20",
+      "--retries",
+      "0",
+      "--fragment-retries",
+      "0",
+      "--extractor-retries",
+      "0",
+      "--file-access-retries",
+      "0",
+      "--no-write-info-json",
+      "--no-write-thumbnail",
+      "--no-write-subs",
+      "--no-write-auto-subs",
+      "--referer",
+      "https://site.example/",
+      "--user-agent",
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0",
+      "--ffmpeg-location",
+      "<APP>\\tools",
+      "--newline",
+      "--no-continue",
+      "--abort-on-unavailable-fragments",
+      "--hls-prefer-native",
+      "--fixup",
+      "never",
+      "--merge-output-format",
+      "mkv",
+      "-o",
+      "<WORK>\\raw.%(ext)s",
+      "--print-to-file",
+      "after_move:filepath",
+      "<WORK>\\result-path.txt",
+      "--load-info-json",
+      "<WORK>\\media.json"
+     ],
+     "timeout": 3600
+    }
+   ],
+   "raw": "<WORK>\\raw.mp4"
+  },
+  "transfer_voe": {
+   "log": [
+    {
+     "check": "IPv4 unmittelbar vor Transfer",
+     "expected": "185.159.157.10"
+    },
+    {
+     "cwd": "<WORK>",
+     "live": true,
+     "run": [
+      "<PY>",
+      "-I",
+      "-m",
+      "yt_dlp",
+      "--http-chunk-size",
+      "10M",
+      "--concurrent-fragments",
+      "4",
+      "--ignore-config",
+      "--no-plugin-dirs",
+      "--no-cache-dir",
+      "--no-playlist",
+      "--no-js-runtimes",
+      "--no-remote-components",
+      "--proxy",
+      "",
+      "--socket-timeout",
+      "20",
+      "--retries",
+      "0",
+      "--fragment-retries",
+      "0",
+      "--extractor-retries",
+      "0",
+      "--file-access-retries",
+      "0",
+      "--no-write-info-json",
+      "--no-write-thumbnail",
+      "--no-write-subs",
+      "--no-write-auto-subs",
+      "--referer",
+      "https://voe.sx/",
+      "--user-agent",
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0",
+      "--ffmpeg-location",
+      "<APP>\\tools",
+      "--newline",
+      "--no-continue",
+      "--abort-on-unavailable-fragments",
+      "--hls-prefer-native",
+      "--fixup",
+      "never",
+      "--merge-output-format",
+      "mkv",
+      "-o",
+      "<WORK>\\raw.%(ext)s",
+      "--print-to-file",
+      "after_move:filepath",
+      "<WORK>\\result-path.txt",
+      "--force-generic-extractor",
+      "--",
+      "https://cdn.example/x.mp4?sig=geheim"
+     ],
+     "timeout": 3600
+    },
+    {
+     "check": "IPv4 vor kompatiblem Retry",
+     "expected": "185.159.157.10"
+    },
+    {
+     "cwd": "<WORK>",
+     "live": true,
+     "run": [
+      "<PY>",
+      "-I",
+      "-m",
+      "yt_dlp",
+      "--ignore-config",
+      "--no-plugin-dirs",
+      "--no-cache-dir",
+      "--no-playlist",
+      "--no-js-runtimes",
+      "--no-remote-components",
+      "--proxy",
+      "",
+      "--socket-timeout",
+      "20",
+      "--retries",
+      "0",
+      "--fragment-retries",
+      "0",
+      "--extractor-retries",
+      "0",
+      "--file-access-retries",
+      "0",
+      "--no-write-info-json",
+      "--no-write-thumbnail",
+      "--no-write-subs",
+      "--no-write-auto-subs",
+      "--referer",
+      "https://voe.sx/",
+      "--user-agent",
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0",
+      "--ffmpeg-location",
+      "<APP>\\tools",
+      "--newline",
+      "--no-continue",
+      "--abort-on-unavailable-fragments",
+      "--hls-prefer-native",
+      "--fixup",
+      "never",
+      "--merge-output-format",
+      "mkv",
+      "-o",
+      "<WORK>\\raw.%(ext)s",
+      "--print-to-file",
+      "after_move:filepath",
+      "<WORK>\\result-path.txt",
+      "--force-generic-extractor",
+      "--",
+      "https://cdn.example/x.mp4?sig=geheim"
+     ],
+     "timeout": 3600
+    }
+   ],
+   "raw": "<WORK>\\raw.mp4"
+  },
+  "ydl_common_origin": [
+   "<PY>",
+   "-I",
+   "-m",
+   "yt_dlp",
+   "--ignore-config",
+   "--no-plugin-dirs",
+   "--no-cache-dir",
+   "--no-playlist",
+   "--no-js-runtimes",
+   "--no-remote-components",
+   "--proxy",
+   "",
+   "--socket-timeout",
+   "20",
+   "--retries",
+   "0",
+   "--fragment-retries",
+   "0",
+   "--extractor-retries",
+   "0",
+   "--file-access-retries",
+   "0",
+   "--no-write-info-json",
+   "--no-write-thumbnail",
+   "--no-write-subs",
+   "--no-write-auto-subs",
+   "--referer",
+   "https://site.example/",
+   "--user-agent",
+   "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0",
+   "--ffmpeg-location",
+   "<APP>\\tools"
+  ],
+  "ydl_common_voe": [
+   "<PY>",
+   "-I",
+   "-m",
+   "yt_dlp",
+   "--ignore-config",
+   "--no-plugin-dirs",
+   "--no-cache-dir",
+   "--no-playlist",
+   "--no-js-runtimes",
+   "--no-remote-components",
+   "--proxy",
+   "",
+   "--socket-timeout",
+   "20",
+   "--retries",
+   "0",
+   "--fragment-retries",
+   "0",
+   "--extractor-retries",
+   "0",
+   "--file-access-retries",
+   "0",
+   "--no-write-info-json",
+   "--no-write-thumbnail",
+   "--no-write-subs",
+   "--no-write-auto-subs",
+   "--referer",
+   "https://voe.sx/",
+   "--user-agent",
+   "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0",
+   "--ffmpeg-location",
+   "<APP>\\tools"
+  ]
+ },
+ "remux": {
+  "mp4": {
+   "calls": [
+    {
+     "cwd": "<WORK>",
+     "run": [
+      "<FFPROBE>",
+      "-v",
+      "error",
+      "-show_format",
+      "-show_streams",
+      "-show_chapters",
+      "-show_data_hash",
+      "sha256",
+      "-of",
+      "json",
+      "<WORK>\\raw.mp4"
+     ],
+     "timeout": 60
+    },
+    {
+     "cwd": "<WORK>",
+     "live": true,
+     "run": [
+      "<FFMPEG>",
+      "-nostdin",
+      "-v",
+      "warning",
+      "-n",
+      "-i",
+      "<WORK>\\raw.mp4",
+      "-map",
+      "0:v:0",
+      "-map",
+      "0:a?",
+      "-map",
+      "0:s?",
+      "-map",
+      "0:t?",
+      "-fflags",
+      "+bitexact",
+      "-flags",
+      "+bitexact",
+      "-map_metadata",
+      "-1",
+      "-map_metadata:s",
+      "-1",
+      "-map_chapters",
+      "-1",
+      "-metadata",
+      "encoder=",
+      "-metadata:s",
+      "encoder=",
+      "-metadata:s",
+      "language=und",
+      "-metadata:s:v",
+      "handler_name=VideoHandler",
+      "-metadata:s:a",
+      "handler_name=SoundHandler",
+      "-metadata:s:s",
+      "handler_name=SubtitleHandler",
+      "-metadata:s:t",
+      "filename=attachment.bin",
+      "-metadata:s:t",
+      "mimetype=application/octet-stream",
+      "-c",
+      "copy",
+      "<WORK>\\clean.mp4"
+     ],
+     "timeout": 1200
+    },
+    {
+     "cwd": "<WORK>",
+     "run": [
+      "<FFPROBE>",
+      "-v",
+      "error",
+      "-show_format",
+      "-show_streams",
+      "-show_chapters",
+      "-show_data_hash",
+      "sha256",
+      "-of",
+      "json",
+      "<WORK>\\clean.mp4"
+     ],
+     "timeout": 60
+    }
+   ],
+   "clean": "<WORK>\\clean.mp4",
+   "extension": ".mp4"
+  },
+  "mpegts": {
+   "calls": [
+    {
+     "cwd": "<WORK>",
+     "run": [
+      "<FFPROBE>",
+      "-v",
+      "error",
+      "-show_format",
+      "-show_streams",
+      "-show_chapters",
+      "-show_data_hash",
+      "sha256",
+      "-of",
+      "json",
+      "<WORK>\\raw.ts"
+     ],
+     "timeout": 60
+    },
+    {
+     "cwd": "<WORK>",
+     "live": true,
+     "run": [
+      "<FFMPEG>",
+      "-nostdin",
+      "-v",
+      "warning",
+      "-n",
+      "-i",
+      "<WORK>\\raw.ts",
+      "-map",
+      "0:v:0",
+      "-map",
+      "0:a?",
+      "-map",
+      "0:s?",
+      "-map",
+      "0:t?",
+      "-fflags",
+      "+bitexact",
+      "-flags",
+      "+bitexact",
+      "-map_metadata",
+      "-1",
+      "-map_metadata:s",
+      "-1",
+      "-map_chapters",
+      "-1",
+      "-metadata",
+      "encoder=",
+      "-metadata:s",
+      "encoder=",
+      "-metadata:s",
+      "language=und",
+      "-metadata:s:v",
+      "handler_name=VideoHandler",
+      "-metadata:s:a",
+      "handler_name=SoundHandler",
+      "-metadata:s:s",
+      "handler_name=SubtitleHandler",
+      "-metadata:s:t",
+      "filename=attachment.bin",
+      "-metadata:s:t",
+      "mimetype=application/octet-stream",
+      "-c",
+      "copy",
+      "<WORK>\\clean.mkv"
+     ],
+     "timeout": 1200
+    },
+    {
+     "cwd": "<WORK>",
+     "run": [
+      "<FFPROBE>",
+      "-v",
+      "error",
+      "-show_format",
+      "-show_streams",
+      "-show_chapters",
+      "-show_data_hash",
+      "sha256",
+      "-of",
+      "json",
+      "<WORK>\\clean.mkv"
+     ],
+     "timeout": 60
+    }
+   ],
+   "clean": "<WORK>\\clean.mkv",
+   "extension": ".mkv"
+  }
+ },
+ "resolve_item": {
+  "http_fails": {
+   "left_answers": 0,
+   "log": [
+    {
+     "cwd": "<WORK>",
+     "run": [
+      "<PY>",
+      "-I",
+      "-m",
+      "yt_dlp",
+      "--ignore-config",
+      "--no-plugin-dirs",
+      "--no-cache-dir",
+      "--no-playlist",
+      "--no-js-runtimes",
+      "--no-remote-components",
+      "--proxy",
+      "",
+      "--socket-timeout",
+      "20",
+      "--retries",
+      "0",
+      "--fragment-retries",
+      "0",
+      "--extractor-retries",
+      "0",
+      "--file-access-retries",
+      "0",
+      "--no-write-info-json",
+      "--no-write-thumbnail",
+      "--no-write-subs",
+      "--no-write-auto-subs",
+      "--referer",
+      "http://plain.example/",
+      "--user-agent",
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0",
+      "--ffmpeg-location",
+      "<APP>\\tools",
+      "--skip-download",
+      "--dump-single-json",
+      "--",
+      "http://plain.example/video"
+     ],
+     "timeout": 120
+    },
+    {
+     "check": "IPv4 vor Generic-Aufloesung",
+     "expected": "185.159.157.10"
+    },
+    {
+     "cwd": "<WORK>",
+     "run": [
+      "<PY>",
+      "-I",
+      "-m",
+      "yt_dlp",
+      "--ignore-config",
+      "--no-plugin-dirs",
+      "--no-cache-dir",
+      "--no-playlist",
+      "--no-js-runtimes",
+      "--no-remote-components",
+      "--proxy",
+      "",
+      "--socket-timeout",
+      "20",
+      "--retries",
+      "0",
+      "--fragment-retries",
+      "0",
+      "--extractor-retries",
+      "0",
+      "--file-access-retries",
+      "0",
+      "--no-write-info-json",
+      "--no-write-thumbnail",
+      "--no-write-subs",
+      "--no-write-auto-subs",
+      "--referer",
+      "http://plain.example/",
+      "--user-agent",
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0",
+      "--ffmpeg-location",
+      "<APP>\\tools",
+      "--skip-download",
+      "--dump-single-json",
+      "--force-generic-extractor",
+      "--",
+      "http://plain.example/video"
+     ],
+     "timeout": 120
+    }
+   ],
+   "result": {
+    "code": 4,
+    "failure": "LINK_RESOLUTION_FAILED"
+   },
+   "url": "http://plain.example/video"
+  },
+  "redirect_first_fails": {
+   "left_answers": 0,
+   "log": [
+    {
+     "cwd": "<WORK>",
+     "run": [
+      "<PY>",
+      "-I",
+      "<APP>\\voe_resolver.py",
+      "https://mediathek.example/kaputt",
+      "[\"voe.sx\", \"susanexpectcare.com\", \"shannoncoldalready.com\", \"caseyseemavoid.com\"]"
+     ],
+     "timeout": 120
+    },
+    {
+     "check": "IPv4 vor yt-dlp-Aufloesung",
+     "expected": "185.159.157.10"
+    },
+    {
+     "cwd": "<WORK>",
+     "run": [
+      "<PY>",
+      "-I",
+      "-m",
+      "yt_dlp",
+      "--ignore-config",
+      "--no-plugin-dirs",
+      "--no-cache-dir",
+      "--no-playlist",
+      "--no-js-runtimes",
+      "--no-remote-components",
+      "--proxy",
+      "",
+      "--socket-timeout",
+      "20",
+      "--retries",
+      "0",
+      "--fragment-retries",
+      "0",
+      "--extractor-retries",
+      "0",
+      "--file-access-retries",
+      "0",
+      "--no-write-info-json",
+      "--no-write-thumbnail",
+      "--no-write-subs",
+      "--no-write-auto-subs",
+      "--referer",
+      "https://mediathek.example/",
+      "--user-agent",
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0",
+      "--ffmpeg-location",
+      "<APP>\\tools",
+      "--skip-download",
+      "--dump-single-json",
+      "--",
+      "https://mediathek.example/kaputt"
+     ],
+     "timeout": 120
+    },
+    {
+     "check": "IPv4 vor Generic-Aufloesung",
+     "expected": "185.159.157.10"
+    },
+    {
+     "cwd": "<WORK>",
+     "run": [
+      "<PY>",
+      "-I",
+      "-m",
+      "yt_dlp",
+      "--ignore-config",
+      "--no-plugin-dirs",
+      "--no-cache-dir",
+      "--no-playlist",
+      "--no-js-runtimes",
+      "--no-remote-components",
+      "--proxy",
+      "",
+      "--socket-timeout",
+      "20",
+      "--retries",
+      "0",
+      "--fragment-retries",
+      "0",
+      "--extractor-retries",
+      "0",
+      "--file-access-retries",
+      "0",
+      "--no-write-info-json",
+      "--no-write-thumbnail",
+      "--no-write-subs",
+      "--no-write-auto-subs",
+      "--referer",
+      "https://mediathek.example/",
+      "--user-agent",
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0",
+      "--ffmpeg-location",
+      "<APP>\\tools",
+      "--skip-download",
+      "--dump-single-json",
+      "--force-generic-extractor",
+      "--",
+      "https://mediathek.example/kaputt"
+     ],
+     "timeout": 120
+    }
+   ],
+   "result": {
+    "code": 4,
+    "failure": "LINK_RESOLUTION_FAILED"
+   },
+   "url": "https://mediathek.example/kaputt"
+  },
+  "redirect_first_time": {
+   "left_answers": 0,
+   "log": [
+    {
+     "cwd": "<WORK>",
+     "run": [
+      "<PY>",
+      "-I",
+      "-m",
+      "yt_dlp",
+      "--ignore-config",
+      "--no-plugin-dirs",
+      "--no-cache-dir",
+      "--no-playlist",
+      "--no-js-runtimes",
+      "--no-remote-components",
+      "--proxy",
+      "",
+      "--socket-timeout",
+      "20",
+      "--retries",
+      "0",
+      "--fragment-retries",
+      "0",
+      "--extractor-retries",
+      "0",
+      "--file-access-retries",
+      "0",
+      "--no-write-info-json",
+      "--no-write-thumbnail",
+      "--no-write-subs",
+      "--no-write-auto-subs",
+      "--referer",
+      "https://mediathek.example/",
+      "--user-agent",
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0",
+      "--ffmpeg-location",
+      "<APP>\\tools",
+      "--skip-download",
+      "--dump-single-json",
+      "--",
+      "https://mediathek.example/redirect/1"
+     ],
+     "timeout": 120
+    },
+    {
+     "check": "IPv4 vor Generic-Aufloesung",
+     "expected": "185.159.157.10"
+    },
+    {
+     "cwd": "<WORK>",
+     "run": [
+      "<PY>",
+      "-I",
+      "-m",
+      "yt_dlp",
+      "--ignore-config",
+      "--no-plugin-dirs",
+      "--no-cache-dir",
+      "--no-playlist",
+      "--no-js-runtimes",
+      "--no-remote-components",
+      "--proxy",
+      "",
+      "--socket-timeout",
+      "20",
+      "--retries",
+      "0",
+      "--fragment-retries",
+      "0",
+      "--extractor-retries",
+      "0",
+      "--file-access-retries",
+      "0",
+      "--no-write-info-json",
+      "--no-write-thumbnail",
+      "--no-write-subs",
+      "--no-write-auto-subs",
+      "--referer",
+      "https://mediathek.example/",
+      "--user-agent",
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0",
+      "--ffmpeg-location",
+      "<APP>\\tools",
+      "--skip-download",
+      "--dump-single-json",
+      "--force-generic-extractor",
+      "--",
+      "https://mediathek.example/redirect/1"
+     ],
+     "timeout": 120
+    },
+    {
+     "check": "IPv4 vor Weiterleitungs-Aufloesung",
+     "expected": "185.159.157.10"
+    },
+    {
+     "cwd": "<WORK>",
+     "run": [
+      "<PY>",
+      "-I",
+      "<APP>\\voe_resolver.py",
+      "https://mediathek.example/redirect/1",
+      "[\"voe.sx\", \"susanexpectcare.com\", \"shannoncoldalready.com\", \"caseyseemavoid.com\"]"
+     ],
+     "timeout": 120
+    },
+    {
+     "emit": "redirect_host",
+     "host": "mediathek.example"
+    }
+   ],
+   "result": {
+    "info": null,
+    "media": "https://cdn.example/v.mp4?sig=geheim",
+    "name": "Film_1",
+    "referer": "https://voe.sx/",
+    "voe": true
+   },
+   "url": "https://mediathek.example/redirect/1"
+  },
+  "redirect_hosts": [
+   "mediathek.example"
+  ],
+  "redirect_second_same_host": {
+   "left_answers": 0,
+   "log": [
+    {
+     "cwd": "<WORK>",
+     "run": [
+      "<PY>",
+      "-I",
+      "<APP>\\voe_resolver.py",
+      "https://mediathek.example/redirect/2",
+      "[\"voe.sx\", \"susanexpectcare.com\", \"shannoncoldalready.com\", \"caseyseemavoid.com\"]"
+     ],
+     "timeout": 120
+    }
+   ],
+   "result": {
+    "info": null,
+    "media": "https://cdn.example/v.mp4?sig=geheim",
+    "name": "Film_2",
+    "referer": "https://voe.sx/",
+    "voe": true
+   },
+   "url": "https://mediathek.example/redirect/2"
+  },
+  "voe_e_link": {
+   "left_answers": 0,
+   "log": [
+    {
+     "cwd": "<WORK>",
+     "run": [
+      "<PY>",
+      "-I",
+      "<APP>\\voe_resolver.py",
+      "https://voe.sx/e/abc123",
+      "[\"voe.sx\", \"susanexpectcare.com\", \"shannoncoldalready.com\", \"caseyseemavoid.com\"]"
+     ],
+     "timeout": 120
+    }
+   ],
+   "result": {
+    "info": null,
+    "media": "https://cdn.example/v.mp4?sig=geheim",
+    "name": "Big_Buck_Bunny",
+    "referer": "https://voe.sx/",
+    "voe": true
+   },
+   "url": "https://voe.sx/e/abc123"
+  },
+  "voe_host_without_e": {
+   "left_answers": 0,
+   "log": [
+    {
+     "cwd": "<WORK>",
+     "run": [
+      "<PY>",
+      "-I",
+      "<APP>\\voe_resolver.py",
+      "https://voe.sx/e/abc123",
+      "[\"voe.sx\", \"susanexpectcare.com\", \"shannoncoldalready.com\", \"caseyseemavoid.com\"]"
+     ],
+     "timeout": 120
+    }
+   ],
+   "result": {
+    "info": null,
+    "media": "https://cdn.example/v.mp4?sig=geheim",
+    "name": "Film",
+    "referer": "https://voe.sx/",
+    "voe": true
+   },
+   "url": "https://susanexpectcare.com/abc123"
+  },
+  "voe_hosts": [
+   "voe.sx",
+   "susanexpectcare.com",
+   "shannoncoldalready.com",
+   "caseyseemavoid.com"
+  ],
+  "ytdlp_info": {
+   "left_answers": 0,
+   "log": [
+    {
+     "cwd": "<WORK>",
+     "run": [
+      "<PY>",
+      "-I",
+      "-m",
+      "yt_dlp",
+      "--ignore-config",
+      "--no-plugin-dirs",
+      "--no-cache-dir",
+      "--no-playlist",
+      "--no-js-runtimes",
+      "--no-remote-components",
+      "--proxy",
+      "",
+      "--socket-timeout",
+      "20",
+      "--retries",
+      "0",
+      "--fragment-retries",
+      "0",
+      "--extractor-retries",
+      "0",
+      "--file-access-retries",
+      "0",
+      "--no-write-info-json",
+      "--no-write-thumbnail",
+      "--no-write-subs",
+      "--no-write-auto-subs",
+      "--referer",
+      "https://site.example/",
+      "--user-agent",
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0",
+      "--ffmpeg-location",
+      "<APP>\\tools",
+      "--skip-download",
+      "--dump-single-json",
+      "--",
+      "https://site.example/watch/42"
+     ],
+     "timeout": 120
+    }
+   ],
+   "result": {
+    "info": {
+     "title": "Ein Titel",
+     "url": "https://cdn.site.example/42.mp4"
+    },
+    "media": null,
+    "name": "Ein_Titel",
+    "referer": "https://site.example/",
+    "voe": false
+   },
+   "url": "https://site.example/watch/42"
+  }
+ },
+ "ui_headers": {
+  "CSP": "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+  "GET /": {
+   "headers": {
+    "Cache-Control": "no-store",
+    "Content-Security-Policy": "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+    "Content-Type": "text/html; charset=utf-8",
+    "Cross-Origin-Resource-Policy": "same-origin",
+    "Referrer-Policy": "same-origin",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY"
+   },
+   "status": 200
+  },
+  "GET / localhost host": {
+   "headers": {
+    "Cache-Control": "no-store",
+    "Content-Security-Policy": "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+    "Content-Type": "application/json; charset=utf-8",
+    "Cross-Origin-Resource-Policy": "same-origin",
+    "Referrer-Policy": "same-origin",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY"
+   },
+   "status": 403
+  },
+  "GET /api/state": {
+   "headers": {
+    "Cache-Control": "no-store",
+    "Content-Security-Policy": "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+    "Content-Type": "application/json; charset=utf-8",
+    "Cross-Origin-Resource-Policy": "same-origin",
+    "Referrer-Policy": "same-origin",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY"
+   },
+   "status": 200
+  },
+  "GET /api/state no token": {
+   "headers": {
+    "Cache-Control": "no-store",
+    "Content-Security-Policy": "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+    "Content-Type": "application/json; charset=utf-8",
+    "Cross-Origin-Resource-Policy": "same-origin",
+    "Referrer-Policy": "same-origin",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY"
+   },
+   "status": 401
+  },
+  "GET /api/state wrong host": {
+   "headers": {
+    "Cache-Control": "no-store",
+    "Content-Security-Policy": "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+    "Content-Type": "application/json; charset=utf-8",
+    "Cross-Origin-Resource-Policy": "same-origin",
+    "Referrer-Policy": "same-origin",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY"
+   },
+   "status": 403
+  },
+  "GET /api/state wrong token": {
+   "headers": {
+    "Cache-Control": "no-store",
+    "Content-Security-Policy": "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+    "Content-Type": "application/json; charset=utf-8",
+    "Cross-Origin-Resource-Policy": "same-origin",
+    "Referrer-Policy": "same-origin",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY"
+   },
+   "status": 401
+  },
+  "GET /app.js": {
+   "headers": {
+    "Cache-Control": "no-store",
+    "Content-Security-Policy": "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+    "Content-Type": "text/javascript; charset=utf-8",
+    "Cross-Origin-Resource-Policy": "same-origin",
+    "Referrer-Policy": "same-origin",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY"
+   },
+   "status": 200
+  },
+  "GET unknown": {
+   "headers": {
+    "Cache-Control": "no-store",
+    "Content-Security-Policy": "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+    "Content-Type": "application/json; charset=utf-8",
+    "Cross-Origin-Resource-Policy": "same-origin",
+    "Referrer-Policy": "same-origin",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY"
+   },
+   "status": 404
+  },
+  "MAX_BODY": 65536,
+  "POST foreign origin": {
+   "headers": {
+    "Cache-Control": "no-store",
+    "Content-Security-Policy": "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+    "Content-Type": "application/json; charset=utf-8",
+    "Cross-Origin-Resource-Policy": "same-origin",
+    "Referrer-Policy": "same-origin",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY"
+   },
+   "status": 403
+  },
+  "POST no token": {
+   "headers": {
+    "Cache-Control": "no-store",
+    "Content-Security-Policy": "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+    "Content-Type": "application/json; charset=utf-8",
+    "Cross-Origin-Resource-Policy": "same-origin",
+    "Referrer-Policy": "same-origin",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY"
+   },
+   "status": 403
+  },
+  "POST non-JSON": {
+   "headers": {
+    "Cache-Control": "no-store",
+    "Content-Security-Policy": "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+    "Content-Type": "application/json; charset=utf-8",
+    "Cross-Origin-Resource-Policy": "same-origin",
+    "Referrer-Policy": "same-origin",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY"
+   },
+   "status": 415
+  },
+  "POST origin null": {
+   "headers": {
+    "Cache-Control": "no-store",
+    "Content-Security-Policy": "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+    "Content-Type": "application/json; charset=utf-8",
+    "Cross-Origin-Resource-Policy": "same-origin",
+    "Referrer-Policy": "same-origin",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY"
+   },
+   "status": 403
+  },
+  "POST oversized": {
+   "headers": {
+    "Cache-Control": "no-store",
+    "Content-Security-Policy": "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+    "Content-Type": "application/json; charset=utf-8",
+    "Cross-Origin-Resource-Policy": "same-origin",
+    "Referrer-Policy": "same-origin",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY"
+   },
+   "status": 413
+  },
+  "POST unknown path": {
+   "headers": {
+    "Cache-Control": "no-store",
+    "Content-Security-Policy": "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+    "Content-Type": "application/json; charset=utf-8",
+    "Cross-Origin-Resource-Policy": "same-origin",
+    "Referrer-Policy": "same-origin",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY"
+   },
+   "status": 404
+  },
+  "queue_after": 0
+ },
+ "winguard": {
+  "DISPLAY_NAME": "Quite Safe Grab",
+  "GROUP": "QuiteSafeGrab",
+  "LEGACY_RULE_PREFIXES": [
+   "PiGrab-"
+  ],
+  "QUICK_STATE_SCRIPT": "\n$ErrorActionPreference = 'Stop'\n[Console]::OutputEncoding = [Text.Encoding]::UTF8\n$adapters = @(Get-NetAdapter | Where-Object { $_.Status -eq 'Up' } | ForEach-Object {\n  [pscustomobject]@{ Name = [string]$_.Name; InterfaceDescription = [string]$_.InterfaceDescription;\n    IPv4 = @(Get-NetIPAddress -InterfaceIndex $_.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue | ForEach-Object { [string]$_.IPAddress });\n    IPv4Unbound = @(Get-NetIPAddress -InterfaceIndex $_.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue |\n      Where-Object { @('Tentative', 'Duplicate', 'Invalid') -contains [string]$_.AddressState } | ForEach-Object { [string]$_.IPAddress }) } })\n[pscustomobject]@{ Adapters = $adapters } | ConvertTo-Json -Compress -Depth 6\n",
+  "RULE_PREFIX": "QuiteSafeGrab-",
+  "SELFTEST_CODE": "\nimport socket, sys\nSAFE = {10013: 'BLOCKED', 10049: 'NOADDR', 10051: 'NOROUTE', 10065: 'NOROUTE'}\nfor ip in sys.argv[1:]:\n    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)\n    s.settimeout(3)\n    try:\n        s.bind((ip, 0))\n        s.connect(('192.0.2.1', 9))\n    except OSError as e:\n        code = getattr(e, 'winerror', None) or e.errno\n        print('SELFTEST', ip, SAFE.get(code, 'OPEN:%s' % code))\n    else:\n        print('SELFTEST', ip, 'OPEN:connected')\n    finally:\n        s.close()\n",
+  "SELFTEST_SAFE": [
+   "BLOCKED",
+   "NOADDR",
+   "NOROUTE"
+  ],
+  "STATE_SCRIPT": "\n$ErrorActionPreference = 'Stop'\n[Console]::OutputEncoding = [Text.Encoding]::UTF8\n$adapters = @(Get-NetAdapter | Where-Object { $_.Status -eq 'Up' } | ForEach-Object {\n  [pscustomobject]@{ Name = [string]$_.Name; InterfaceDescription = [string]$_.InterfaceDescription;\n    IPv4 = @(Get-NetIPAddress -InterfaceIndex $_.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue | ForEach-Object { [string]$_.IPAddress });\n    IPv4Unbound = @(Get-NetIPAddress -InterfaceIndex $_.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue |\n      Where-Object { @('Tentative', 'Duplicate', 'Invalid') -contains [string]$_.AddressState } | ForEach-Object { [string]$_.IPAddress }) } })\n$rules = @(); $rulesError = ''\ntry {\n  $rules = @(Get-NetFirewallRule -Name 'QuiteSafeGrab-*' -ErrorAction Stop | ForEach-Object {\n    $a = $_ | Get-NetFirewallAddressFilter; $p = $_ | Get-NetFirewallApplicationFilter\n    [pscustomobject]@{ Name = [string]$_.Name; Enabled = [string]$_.Enabled; Direction = [string]$_.Direction;\n      Action = [string]$_.Action; Program = [string]$p.Program;\n      LocalAddress = @($a.LocalAddress | ForEach-Object { [string]$_ }) } })\n} catch {\n  if ($_.FullyQualifiedErrorId -notlike '*NotFound*') { $rulesError = [string]$_.Exception.Message }\n}\n$profiles = @(Get-NetFirewallProfile | ForEach-Object { [pscustomobject]@{ Name = [string]$_.Name; Enabled = [string]$_.Enabled } })\n[pscustomobject]@{ Adapters = $adapters; Rules = $rules; Profiles = $profiles; RulesError = $rulesError } | ConvertTo-Json -Compress -Depth 6\n",
+  "V6_ENTRIES": [
+   "::/1",
+   "8000::/1"
+  ],
+  "apply_script": "$ErrorActionPreference = 'Stop'\nGet-NetFirewallRule -Name 'QuiteSafeGrab-*' -ErrorAction SilentlyContinue | Remove-NetFirewallRule\nGet-NetFirewallRule -Name 'PiGrab-*' -ErrorAction SilentlyContinue | Remove-NetFirewallRule\nNew-NetFirewallRule -Name 'QuiteSafeGrab-v4-1' -DisplayName 'Quite Safe Grab Netzsperre v4 1' -Group 'QuiteSafeGrab' -Direction Outbound -Action Block -Program 'C:\\QSG\\python\\python.exe' -LocalAddress @('0.0.0.0-10.2.0.1','10.2.0.3-126.255.255.255','128.0.0.0-255.255.255.255') -Profile Any -Enabled True | Out-Null\nNew-NetFirewallRule -Name 'QuiteSafeGrab-v6-1' -DisplayName 'Quite Safe Grab Netzsperre v6 1' -Group 'QuiteSafeGrab' -Direction Outbound -Action Block -Program 'C:\\QSG\\python\\python.exe' -LocalAddress @('::/1','8000::/1') -Profile Any -Enabled True | Out-Null\nNew-NetFirewallRule -Name 'QuiteSafeGrab-v4-2' -DisplayName 'Quite Safe Grab Netzsperre v4 2' -Group 'QuiteSafeGrab' -Direction Outbound -Action Block -Program 'C:\\QSG\\tools\\ffmpeg.exe' -LocalAddress @('0.0.0.0-10.2.0.1','10.2.0.3-126.255.255.255','128.0.0.0-255.255.255.255') -Profile Any -Enabled True | Out-Null\nNew-NetFirewallRule -Name 'QuiteSafeGrab-v6-2' -DisplayName 'Quite Safe Grab Netzsperre v6 2' -Group 'QuiteSafeGrab' -Direction Outbound -Action Block -Program 'C:\\QSG\\tools\\ffmpeg.exe' -LocalAddress @('::/1','8000::/1') -Profile Any -Enabled True | Out-Null\nNew-NetFirewallRule -Name 'QuiteSafeGrab-v4-3' -DisplayName 'Quite Safe Grab Netzsperre v4 3' -Group 'QuiteSafeGrab' -Direction Outbound -Action Block -Program 'C:\\QSG\\tools\\ffprobe.exe' -LocalAddress @('0.0.0.0-10.2.0.1','10.2.0.3-126.255.255.255','128.0.0.0-255.255.255.255') -Profile Any -Enabled True | Out-Null\nNew-NetFirewallRule -Name 'QuiteSafeGrab-v6-3' -DisplayName 'Quite Safe Grab Netzsperre v6 3' -Group 'QuiteSafeGrab' -Direction Outbound -Action Block -Program 'C:\\QSG\\tools\\ffprobe.exe' -LocalAddress @('::/1','8000::/1') -Profile Any -Enabled True | Out-Null\nNew-NetFirewallRule -Name 'QuiteSafeGrab-v4-4' -DisplayName 'Quite Safe Grab Netzsperre v4 4' -Group 'QuiteSafeGrab' -Direction Outbound -Action Block -Program 'C:\\Windows\\System32\\curl.exe' -LocalAddress @('0.0.0.0-10.2.0.1','10.2.0.3-126.255.255.255','128.0.0.0-255.255.255.255') -Profile Any -Enabled True | Out-Null\nNew-NetFirewallRule -Name 'QuiteSafeGrab-v6-4' -DisplayName 'Quite Safe Grab Netzsperre v6 4' -Group 'QuiteSafeGrab' -Direction Outbound -Action Block -Program 'C:\\Windows\\System32\\curl.exe' -LocalAddress @('::/1','8000::/1') -Profile Any -Enabled True | Out-Null\nNew-NetFirewallRule -Name 'QuiteSafeGrab-v4-5' -DisplayName 'Quite Safe Grab Netzsperre v4 5' -Group 'QuiteSafeGrab' -Direction Outbound -Action Block -Program 'C:\\Windows\\System32\\nslookup.exe' -LocalAddress @('0.0.0.0-10.2.0.1','10.2.0.3-126.255.255.255','128.0.0.0-255.255.255.255') -Profile Any -Enabled True | Out-Null\nNew-NetFirewallRule -Name 'QuiteSafeGrab-v6-5' -DisplayName 'Quite Safe Grab Netzsperre v6 5' -Group 'QuiteSafeGrab' -Direction Outbound -Action Block -Program 'C:\\Windows\\System32\\nslookup.exe' -LocalAddress @('::/1','8000::/1') -Profile Any -Enabled True | Out-Null",
+  "apply_script_two_vpn_ips": "$ErrorActionPreference = 'Stop'\nGet-NetFirewallRule -Name 'QuiteSafeGrab-*' -ErrorAction SilentlyContinue | Remove-NetFirewallRule\nGet-NetFirewallRule -Name 'PiGrab-*' -ErrorAction SilentlyContinue | Remove-NetFirewallRule\nNew-NetFirewallRule -Name 'QuiteSafeGrab-v4-1' -DisplayName 'Quite Safe Grab Netzsperre v4 1' -Group 'QuiteSafeGrab' -Direction Outbound -Action Block -Program 'C:\\QSG\\python\\python.exe' -LocalAddress @('0.0.0.0-10.2.0.1','10.2.0.3-10.2.0.8','10.2.0.10-126.255.255.255','128.0.0.0-255.255.255.255') -Profile Any -Enabled True | Out-Null\nNew-NetFirewallRule -Name 'QuiteSafeGrab-v6-1' -DisplayName 'Quite Safe Grab Netzsperre v6 1' -Group 'QuiteSafeGrab' -Direction Outbound -Action Block -Program 'C:\\QSG\\python\\python.exe' -LocalAddress @('::/1','8000::/1') -Profile Any -Enabled True | Out-Null",
+  "fw_relaunch_script": "Start-Process -FilePath '<PY>' -ArgumentList '-I \"<APP>\\fw.py\" apply --config D:\\Konfig\\config.toml --elevated' -Verb RunAs -Wait",
+  "fw_status_codes": [
+   0,
+   2,
+   3
+  ],
+  "powershell_args_QUICK_STATE_SCRIPT": [
+   "-NoLogo",
+   "-NoProfile",
+   "-NonInteractive",
+   "-ExecutionPolicy",
+   "Restricted",
+   "-EncodedCommand",
+   "CgAkAEUAcgByAG8AcgBBAGMAdABpAG8AbgBQAHIAZQBmAGUAcgBlAG4AYwBlACAAPQAgACcAUwB0AG8AcAAnAAoAWwBDAG8AbgBzAG8AbABlAF0AOgA6AE8AdQB0AHAAdQB0AEUAbgBjAG8AZABpAG4AZwAgAD0AIABbAFQAZQB4AHQALgBFAG4AYwBvAGQAaQBuAGcAXQA6ADoAVQBUAEYAOAAKACQAYQBkAGEAcAB0AGUAcgBzACAAPQAgAEAAKABHAGUAdAAtAE4AZQB0AEEAZABhAHAAdABlAHIAIAB8ACAAVwBoAGUAcgBlAC0ATwBiAGoAZQBjAHQAIAB7ACAAJABfAC4AUwB0AGEAdAB1AHMAIAAtAGUAcQAgACcAVQBwACcAIAB9ACAAfAAgAEYAbwByAEUAYQBjAGgALQBPAGIAagBlAGMAdAAgAHsACgAgACAAWwBwAHMAYwB1AHMAdABvAG0AbwBiAGoAZQBjAHQAXQBAAHsAIABOAGEAbQBlACAAPQAgAFsAcwB0AHIAaQBuAGcAXQAkAF8ALgBOAGEAbQBlADsAIABJAG4AdABlAHIAZgBhAGMAZQBEAGUAcwBjAHIAaQBwAHQAaQBvAG4AIAA9ACAAWwBzAHQAcgBpAG4AZwBdACQAXwAuAEkAbgB0AGUAcgBmAGEAYwBlAEQAZQBzAGMAcgBpAHAAdABpAG8AbgA7AAoAIAAgACAAIABJAFAAdgA0ACAAPQAgAEAAKABHAGUAdAAtAE4AZQB0AEkAUABBAGQAZAByAGUAcwBzACAALQBJAG4AdABlAHIAZgBhAGMAZQBJAG4AZABlAHgAIAAkAF8ALgBpAGYASQBuAGQAZQB4ACAALQBBAGQAZAByAGUAcwBzAEYAYQBtAGkAbAB5ACAASQBQAHYANAAgAC0ARQByAHIAbwByAEEAYwB0AGkAbwBuACAAUwBpAGwAZQBuAHQAbAB5AEMAbwBuAHQAaQBuAHUAZQAgAHwAIABGAG8AcgBFAGEAYwBoAC0ATwBiAGoAZQBjAHQAIAB7ACAAWwBzAHQAcgBpAG4AZwBdACQAXwAuAEkAUABBAGQAZAByAGUAcwBzACAAfQApADsACgAgACAAIAAgAEkAUAB2ADQAVQBuAGIAbwB1AG4AZAAgAD0AIABAACgARwBlAHQALQBOAGUAdABJAFAAQQBkAGQAcgBlAHMAcwAgAC0ASQBuAHQAZQByAGYAYQBjAGUASQBuAGQAZQB4ACAAJABfAC4AaQBmAEkAbgBkAGUAeAAgAC0AQQBkAGQAcgBlAHMAcwBGAGEAbQBpAGwAeQAgAEkAUAB2ADQAIAAtAEUAcgByAG8AcgBBAGMAdABpAG8AbgAgAFMAaQBsAGUAbgB0AGwAeQBDAG8AbgB0AGkAbgB1AGUAIAB8AAoAIAAgACAAIAAgACAAVwBoAGUAcgBlAC0ATwBiAGoAZQBjAHQAIAB7ACAAQAAoACcAVABlAG4AdABhAHQAaQB2AGUAJwAsACAAJwBEAHUAcABsAGkAYwBhAHQAZQAnACwAIAAnAEkAbgB2AGEAbABpAGQAJwApACAALQBjAG8AbgB0AGEAaQBuAHMAIABbAHMAdAByAGkAbgBnAF0AJABfAC4AQQBkAGQAcgBlAHMAcwBTAHQAYQB0AGUAIAB9ACAAfAAgAEYAbwByAEUAYQBjAGgALQBPAGIAagBlAGMAdAAgAHsAIABbAHMAdAByAGkAbgBnAF0AJABfAC4ASQBQAEEAZABkAHIAZQBzAHMAIAB9ACkAIAB9ACAAfQApAAoAWwBwAHMAYwB1AHMAdABvAG0AbwBiAGoAZQBjAHQAXQBAAHsAIABBAGQAYQBwAHQAZQByAHMAIAA9ACAAJABhAGQAYQBwAHQAZQByAHMAIAB9ACAAfAAgAEMAbwBuAHYAZQByAHQAVABvAC0ASgBzAG8AbgAgAC0AQwBvAG0AcAByAGUAcwBzACAALQBEAGUAcAB0AGgAIAA2AAoA"
+  ],
+  "powershell_args_STATE_SCRIPT": [
+   "-NoLogo",
+   "-NoProfile",
+   "-NonInteractive",
+   "-ExecutionPolicy",
+   "Restricted",
+   "-EncodedCommand",
+   "CgAkAEUAcgByAG8AcgBBAGMAdABpAG8AbgBQAHIAZQBmAGUAcgBlAG4AYwBlACAAPQAgACcAUwB0AG8AcAAnAAoAWwBDAG8AbgBzAG8AbABlAF0AOgA6AE8AdQB0AHAAdQB0AEUAbgBjAG8AZABpAG4AZwAgAD0AIABbAFQAZQB4AHQALgBFAG4AYwBvAGQAaQBuAGcAXQA6ADoAVQBUAEYAOAAKACQAYQBkAGEAcAB0AGUAcgBzACAAPQAgAEAAKABHAGUAdAAtAE4AZQB0AEEAZABhAHAAdABlAHIAIAB8ACAAVwBoAGUAcgBlAC0ATwBiAGoAZQBjAHQAIAB7ACAAJABfAC4AUwB0AGEAdAB1AHMAIAAtAGUAcQAgACcAVQBwACcAIAB9ACAAfAAgAEYAbwByAEUAYQBjAGgALQBPAGIAagBlAGMAdAAgAHsACgAgACAAWwBwAHMAYwB1AHMAdABvAG0AbwBiAGoAZQBjAHQAXQBAAHsAIABOAGEAbQBlACAAPQAgAFsAcwB0AHIAaQBuAGcAXQAkAF8ALgBOAGEAbQBlADsAIABJAG4AdABlAHIAZgBhAGMAZQBEAGUAcwBjAHIAaQBwAHQAaQBvAG4AIAA9ACAAWwBzAHQAcgBpAG4AZwBdACQAXwAuAEkAbgB0AGUAcgBmAGEAYwBlAEQAZQBzAGMAcgBpAHAAdABpAG8AbgA7AAoAIAAgACAAIABJAFAAdgA0ACAAPQAgAEAAKABHAGUAdAAtAE4AZQB0AEkAUABBAGQAZAByAGUAcwBzACAALQBJAG4AdABlAHIAZgBhAGMAZQBJAG4AZABlAHgAIAAkAF8ALgBpAGYASQBuAGQAZQB4ACAALQBBAGQAZAByAGUAcwBzAEYAYQBtAGkAbAB5ACAASQBQAHYANAAgAC0ARQByAHIAbwByAEEAYwB0AGkAbwBuACAAUwBpAGwAZQBuAHQAbAB5AEMAbwBuAHQAaQBuAHUAZQAgAHwAIABGAG8AcgBFAGEAYwBoAC0ATwBiAGoAZQBjAHQAIAB7ACAAWwBzAHQAcgBpAG4AZwBdACQAXwAuAEkAUABBAGQAZAByAGUAcwBzACAAfQApADsACgAgACAAIAAgAEkAUAB2ADQAVQBuAGIAbwB1AG4AZAAgAD0AIABAACgARwBlAHQALQBOAGUAdABJAFAAQQBkAGQAcgBlAHMAcwAgAC0ASQBuAHQAZQByAGYAYQBjAGUASQBuAGQAZQB4ACAAJABfAC4AaQBmAEkAbgBkAGUAeAAgAC0AQQBkAGQAcgBlAHMAcwBGAGEAbQBpAGwAeQAgAEkAUAB2ADQAIAAtAEUAcgByAG8AcgBBAGMAdABpAG8AbgAgAFMAaQBsAGUAbgB0AGwAeQBDAG8AbgB0AGkAbgB1AGUAIAB8AAoAIAAgACAAIAAgACAAVwBoAGUAcgBlAC0ATwBiAGoAZQBjAHQAIAB7ACAAQAAoACcAVABlAG4AdABhAHQAaQB2AGUAJwAsACAAJwBEAHUAcABsAGkAYwBhAHQAZQAnACwAIAAnAEkAbgB2AGEAbABpAGQAJwApACAALQBjAG8AbgB0AGEAaQBuAHMAIABbAHMAdAByAGkAbgBnAF0AJABfAC4AQQBkAGQAcgBlAHMAcwBTAHQAYQB0AGUAIAB9ACAAfAAgAEYAbwByAEUAYQBjAGgALQBPAGIAagBlAGMAdAAgAHsAIABbAHMAdAByAGkAbgBnAF0AJABfAC4ASQBQAEEAZABkAHIAZQBzAHMAIAB9ACkAIAB9ACAAfQApAAoAJAByAHUAbABlAHMAIAA9ACAAQAAoACkAOwAgACQAcgB1AGwAZQBzAEUAcgByAG8AcgAgAD0AIAAnACcACgB0AHIAeQAgAHsACgAgACAAJAByAHUAbABlAHMAIAA9ACAAQAAoAEcAZQB0AC0ATgBlAHQARgBpAHIAZQB3AGEAbABsAFIAdQBsAGUAIAAtAE4AYQBtAGUAIAAnAFEAdQBpAHQAZQBTAGEAZgBlAEcAcgBhAGIALQAqACcAIAAtAEUAcgByAG8AcgBBAGMAdABpAG8AbgAgAFMAdABvAHAAIAB8ACAARgBvAHIARQBhAGMAaAAtAE8AYgBqAGUAYwB0ACAAewAKACAAIAAgACAAJABhACAAPQAgACQAXwAgAHwAIABHAGUAdAAtAE4AZQB0AEYAaQByAGUAdwBhAGwAbABBAGQAZAByAGUAcwBzAEYAaQBsAHQAZQByADsAIAAkAHAAIAA9ACAAJABfACAAfAAgAEcAZQB0AC0ATgBlAHQARgBpAHIAZQB3AGEAbABsAEEAcABwAGwAaQBjAGEAdABpAG8AbgBGAGkAbAB0AGUAcgAKACAAIAAgACAAWwBwAHMAYwB1AHMAdABvAG0AbwBiAGoAZQBjAHQAXQBAAHsAIABOAGEAbQBlACAAPQAgAFsAcwB0AHIAaQBuAGcAXQAkAF8ALgBOAGEAbQBlADsAIABFAG4AYQBiAGwAZQBkACAAPQAgAFsAcwB0AHIAaQBuAGcAXQAkAF8ALgBFAG4AYQBiAGwAZQBkADsAIABEAGkAcgBlAGMAdABpAG8AbgAgAD0AIABbAHMAdAByAGkAbgBnAF0AJABfAC4ARABpAHIAZQBjAHQAaQBvAG4AOwAKACAAIAAgACAAIAAgAEEAYwB0AGkAbwBuACAAPQAgAFsAcwB0AHIAaQBuAGcAXQAkAF8ALgBBAGMAdABpAG8AbgA7ACAAUAByAG8AZwByAGEAbQAgAD0AIABbAHMAdAByAGkAbgBnAF0AJABwAC4AUAByAG8AZwByAGEAbQA7AAoAIAAgACAAIAAgACAATABvAGMAYQBsAEEAZABkAHIAZQBzAHMAIAA9ACAAQAAoACQAYQAuAEwAbwBjAGEAbABBAGQAZAByAGUAcwBzACAAfAAgAEYAbwByAEUAYQBjAGgALQBPAGIAagBlAGMAdAAgAHsAIABbAHMAdAByAGkAbgBnAF0AJABfACAAfQApACAAfQAgAH0AKQAKAH0AIABjAGEAdABjAGgAIAB7AAoAIAAgAGkAZgAgACgAJABfAC4ARgB1AGwAbAB5AFEAdQBhAGwAaQBmAGkAZQBkAEUAcgByAG8AcgBJAGQAIAAtAG4AbwB0AGwAaQBrAGUAIAAnACoATgBvAHQARgBvAHUAbgBkACoAJwApACAAewAgACQAcgB1AGwAZQBzAEUAcgByAG8AcgAgAD0AIABbAHMAdAByAGkAbgBnAF0AJABfAC4ARQB4AGMAZQBwAHQAaQBvAG4ALgBNAGUAcwBzAGEAZwBlACAAfQAKAH0ACgAkAHAAcgBvAGYAaQBsAGUAcwAgAD0AIABAACgARwBlAHQALQBOAGUAdABGAGkAcgBlAHcAYQBsAGwAUAByAG8AZgBpAGwAZQAgAHwAIABGAG8AcgBFAGEAYwBoAC0ATwBiAGoAZQBjAHQAIAB7ACAAWwBwAHMAYwB1AHMAdABvAG0AbwBiAGoAZQBjAHQAXQBAAHsAIABOAGEAbQBlACAAPQAgAFsAcwB0AHIAaQBuAGcAXQAkAF8ALgBOAGEAbQBlADsAIABFAG4AYQBiAGwAZQBkACAAPQAgAFsAcwB0AHIAaQBuAGcAXQAkAF8ALgBFAG4AYQBiAGwAZQBkACAAfQAgAH0AKQAKAFsAcABzAGMAdQBzAHQAbwBtAG8AYgBqAGUAYwB0AF0AQAB7ACAAQQBkAGEAcAB0AGUAcgBzACAAPQAgACQAYQBkAGEAcAB0AGUAcgBzADsAIABSAHUAbABlAHMAIAA9ACAAJAByAHUAbABlAHMAOwAgAFAAcgBvAGYAaQBsAGUAcwAgAD0AIAAkAHAAcgBvAGYAaQBsAGUAcwA7ACAAUgB1AGwAZQBzAEUAcgByAG8AcgAgAD0AIAAkAHIAdQBsAGUAcwBFAHIAcgBvAHIAIAB9ACAAfAAgAEMAbwBuAHYAZQByAHQAVABvAC0ASgBzAG8AbgAgAC0AQwBvAG0AcAByAGUAcwBzACAALQBEAGUAcAB0AGgAIAA2AAoA"
+  ],
+  "remove_script": "$ErrorActionPreference = 'Stop'\nGet-NetFirewallRule -Name 'QuiteSafeGrab-*' -ErrorAction SilentlyContinue | Remove-NetFirewallRule\nGet-NetFirewallRule -Name 'PiGrab-*' -ErrorAction SilentlyContinue | Remove-NetFirewallRule"
+ }
+}

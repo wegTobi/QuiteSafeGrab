@@ -32,7 +32,7 @@
 <div id="offline" class="banner bad" hidden>Keine Verbindung zur QuiteSafeGrab-Oberfläche. Läuft das QuiteSafeGrab-Fenster noch?</div>
 
 <main class="grid">
-  <section class="card quiet" aria-labelledby="h-checks">
+  <section class="card" aria-labelledby="h-checks">
     <div class="card-head">
       <h2 id="h-checks">Sicherheit</h2>
       <button id="btn-check" class="btn ghost small-btn" type="button">Jetzt prüfen</button>
@@ -50,7 +50,7 @@
     </label>
     <label class="field">
       <span>Eigener Dateiname <span class="muted">(optional, nur bei einem Link)</span></span>
-      <input id="name" type="text" maxlength="120" autocomplete="off" spellcheck="false">
+      <input id="name" type="text" autocomplete="off" spellcheck="false" maxlength="120">
     </label>
     <div class="row">
       <button id="btn-add" class="btn" type="button">Zur Warteschlange</button>
@@ -66,21 +66,13 @@
     <div id="now" hidden>
       <div class="now-title" id="now-title">–</div>
       <p class="now-hint" id="now-hint" hidden><span class="hint-spin" aria-hidden="true"></span><span id="now-hint-text"></span></p>
-      <ol class="steps" id="steps">
-        <li data-phase="checks">Prüfen</li>
-        <li data-phase="probe">Probe</li>
-        <li data-phase="resolve">Auflösen</li>
-        <li data-phase="download">Download</li>
-        <li data-phase="remux">Remux</li>
-        <li data-phase="verify">Abschluss</li>
-      </ol>
+      <ol class="steps" id="steps"></ol>
       <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" id="bar"><div id="bar-fill"></div></div>
       <dl class="stats">
         <div><dt>Fortschritt</dt><dd id="st-pct">–</dd></div>
         <div><dt>Geschwindigkeit</dt><dd id="st-speed">–</dd></div>
         <div><dt>Ø Geschwindigkeit</dt><dd id="st-avg">–</dd></div>
         <div><dt>Restzeit</dt><dd id="st-eta">–</dd></div>
-        <div><dt>Größe</dt><dd id="st-total">–</dd></div>
         <div><dt>Läuft seit</dt><dd id="st-elapsed">–</dd></div>
       </dl>
     </div>
@@ -91,7 +83,7 @@
       <h2 id="h-queue">Warteschlange <span id="queue-count" class="count" hidden></span></h2>
       <div class="head-actions">
         <button id="btn-sizes" class="btn ghost small-btn" type="button" hidden
-          title="Eine kleine Spur mehr: Der Videoserver sieht schon bei der Größenabfrage einen Abruf und später beim Download noch einmal. Die IP-Adresse bleibt geschützt, es ist nur ein Kontakt mehr.">Gesamtlaufzeit berechnen</button>
+          title="Eine kleine Spur mehr: Der Videoserver sieht schon bei der Größenabfrage einen Abruf und später beim Download noch einmal. Die IP-Adresse bleibt geschützt, es ist nur ein Kontakt mehr."></button>
         <span id="queue-total" class="queue-total" hidden></span>
       </div>
     </div>

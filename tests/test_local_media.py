@@ -16,7 +16,9 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 import grab as g
+from helpers import RecordingNet as SimulatedVPN   # simulierte VPN-Pruefung: merkt sich nur die Pruefpunkte
 
 FFMPEG = os.environ.get('QSGRAB_TEST_FFMPEG') or g.FFMPEG or ''
 FFPROBE = os.environ.get('QSGRAB_TEST_FFPROBE') or g.FFPROBE or ''
@@ -27,14 +29,6 @@ AVAILABLE = all(p and Path(p).is_file() for p in (FFMPEG, FFPROBE)) and importli
 class Quiet(http.server.SimpleHTTPRequestHandler):
     def log_message(self, *args):
         pass
-
-
-class SimulatedVPN:
-    skip = False
-    def __init__(self): self.calls = []
-    def check(self, label, expected=None):
-        self.calls.append(label)
-        return '1.1.1.1'
 
 
 def publish_worker(args):
@@ -93,7 +87,7 @@ class TestMedia(unittest.TestCase):
             self.assertTrue(target.is_file())
             self.assertGreater(target.stat().st_size,0)
             self.assertEqual(list(store.work.iterdir()),[])
-            self.assertTrue((store.state/'.last_exit_ip').is_file())
+            self.assertEqual(list(store.state.iterdir()),[])   # Exit-IP wird nie gespeichert (V6)
             self.assertGreaterEqual(len(net.calls),4)
 
     def test_local_valid_broken_queue(self):

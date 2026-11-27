@@ -5,18 +5,28 @@ import base64
 import contextlib
 import html
 import io
+import ipaddress
 import json
 from pathlib import Path
 import re
+import socket
 import sys
 import urllib.error
 import urllib.parse
 import urllib.request
 
-# -I excludes the script directory; explicitly admit only this installed source.
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-
 UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0'
+VOE_REFERER = 'https://voe.sx/'   # Pflicht-Referer fuer VOE-Seiten und -Transfers (auch grab.py)
+
+# VOE-IDs: grab.is_voe erkennt nur Kleinbuchstaben und Ziffern (VOE_ID_RE), embed_url auch Grossbuchstaben
+# (EMBED_ID_RE). Bewusst nicht angeglichen - das wuerde aendern, welche Links als VOE gelten.
+VOE_ID_RE = '[a-z0-9]+'
+EMBED_ID_RE = '[A-Za-z0-9]+'
+
+# Schrittgrenzen, bewusst verschieden (Angleichen waere eine Verhaltensaenderung):
+MAX_PAGE_STEPS = 4   # resolve(): VOE-Seiten inkl. JavaScript-/Einbettungs-Sprung
+MAX_HOPS = 5         # follow(): HTTP-Weiterleitungen bis zum VOE-Host
+MAX_SIZE_HOPS = 4    # grab.media_size(): Weiterleitungen der Videodatei
 
 
 def valid_url(url):
@@ -29,10 +39,15 @@ def valid_url(url):
     return url
 
 
+def https_443(p):
+    """Zerlegte Adresse (urlsplit) nutzt HTTPS auf dem Standardport."""
+    return p.scheme == 'https' and p.port in (None, 443)
+
+
 def allowed_page(url, hosts):
     valid_url(url)
     p = urllib.parse.urlsplit(url)
-    if p.scheme != 'https' or p.hostname not in hosts or p.port not in (None, 443):
+    if not https_443(p) or p.hostname not in hosts:
         raise ValueError('VOE-Weiterleitung ausserhalb der konfigurierten HTTPS-Hosts')
     return url
 
@@ -84,7 +99,7 @@ def embed_url(url):
     p = urllib.parse.urlsplit(url)
     if p.hostname not in EMBED_HOSTS:
         return None
-    m = re.fullmatch(r'/([A-Za-z0-9]+)/?', p.path)
+    m = re.fullmatch(f'/({EMBED_ID_RE})/?', p.path)
     if not m:
         return None
     return urllib.parse.urlunsplit((p.scheme, p.netloc, '/e/' + m.group(1), p.query, ''))
@@ -93,12 +108,12 @@ def embed_url(url):
 def resolve(url, hosts):
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), Redirect(hosts))
     visited = set()
-    for _ in range(4):
+    for _ in range(MAX_PAGE_STEPS):
         allowed_page(url, hosts)
         if url in visited:
             raise ValueError('VOE-Weiterleitungsschleife')
         visited.add(url)
-        req = urllib.request.Request(url, headers={'User-Agent': UA, 'Referer': 'https://voe.sx/'})
+        req = urllib.request.Request(url, headers={'User-Agent': UA, 'Referer': VOE_REFERER})
         with opener.open(req, timeout=20) as response:
             raw = response.read(2 * 1024 * 1024 + 1)
             if len(raw) > 2 * 1024 * 1024:
@@ -120,18 +135,13 @@ def resolve(url, hosts):
     raise ValueError('Zu viele VOE-Weiterleitungen')
 
 
-MAX_HOPS = 5
-
-
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
-        return None   # jede Weiterleitung einzeln pruefen (follow)
+        return None
 
 
 def public_host(host):
     """Nur oeffentliche Ziele: keine lokalen, privaten oder reservierten Adressen (auch nach DNS)."""
-    import ipaddress
-    import socket
     try:
         infos = socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM)
     except OSError:
@@ -153,7 +163,7 @@ def follow(url, hosts, check_host=public_host):
         p = urllib.parse.urlsplit(url)
         if p.hostname in hosts:
             return allowed_page(url, hosts)
-        if p.scheme != 'https' or p.port not in (None, 443):
+        if not https_443(p):
             raise ValueError('Weiterleitung nur ueber HTTPS')
         check_host(p.hostname)
         req = urllib.request.Request(url, headers={'User-Agent': UA})
@@ -170,6 +180,8 @@ def follow(url, hosts, check_host=public_host):
 
 
 if __name__ == '__main__':
+    # -I excludes the script directory; explicitly admit only this installed source.
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
     try:
         hosts = json.loads(sys.argv[2])
         start = sys.argv[1]

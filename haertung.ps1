@@ -1,6 +1,6 @@
 ﻿# Kleine Windows-Haertungen fuer Quite Safe Grab. Ohne Schalter nur ein BERICHT (aendert nichts).
 #   powershell -ExecutionPolicy Bypass -File .\haertung.ps1
-#   powershell -ExecutionPolicy Bypass -File .\haertung.ps1 -Storage D:\Quite Safe GrabDaten
+#   powershell -ExecutionPolicy Bypass -File .\haertung.ps1 -Storage D:\QuiteSafeGrabDaten
 #   powershell -ExecutionPolicy Bypass -File .\haertung.ps1 -DisableShellHistory -DisableRecentFiles
 # Keine Adminrechte noetig. Jede Aenderung ist einzeln zuschaltbar und wird angezeigt.
 param(
@@ -13,6 +13,7 @@ $config = Join-Path $PSScriptRoot 'config.toml'
 if (-not (Test-Path -LiteralPath $config)) { throw 'config.toml fehlt.' }
 
 function Expand-Storage([string]$p) { if ($p -eq '~' -or $p.StartsWith('~/') -or $p.StartsWith('~\')) { $p = $env:USERPROFILE + $p.Substring(1) }; [IO.Path]::GetFullPath($p) }
+# OneDrive- und Verknuepfungspruefung gibt es getrennt auch in setup.ps1 (Frage 2) und grab.py (secure_directory).
 function Under-OneDrive([string]$path) {
   foreach ($root in @($env:OneDrive, $env:OneDriveConsumer, $env:OneDriveCommercial) | Where-Object { $_ }) {
     if ($path.TrimEnd('\').StartsWith($root.TrimEnd('\'), [StringComparison]::OrdinalIgnoreCase)) { return $true }
@@ -81,6 +82,7 @@ try {
 } catch { Write-Host 'PowerShell-Verlauf: nicht feststellbar' }
 $r = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer' -ErrorAction SilentlyContinue
 Write-Host ("Zuletzt verwendete Dateien (Explorer): " + $(if ($r -and $r.ShowRecent -eq 0) { 'aus' } else { 'an  <- -DisableRecentFiles' }))
+# Wie setup.ps1 (Abschnitt 3): eigene Laufzeit = .\python mit einer ._pth-Datei.
 $own = @(Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot 'python') -Filter 'python*._pth' -File -ErrorAction SilentlyContinue).Count -gt 0
 Write-Host ("Eigene Python-Laufzeit (.\python) fuer die Firewallregeln: " + $(if ($own) { 'ja' } else { 'NEIN - setup.ps1 noch nicht ausgefuehrt' }))
 Write-Host 'Nur manuell moeglich: WLAN -> Einstellungen -> "Zufaellige Hardwareadressen" fuer dein Netz einschalten (Windows 10/11).'

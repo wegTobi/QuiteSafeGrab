@@ -2,18 +2,14 @@
 // Alle Daten werden per textContent eingesetzt (nie als HTML).
 'use strict';
 
-const CHECKS = [
-  ['vpn', 'VPN-Adapter'],
-  ['firewall', 'Netzsperre'],
-  ['selftest', 'Selbsttest'],
-  ['ipv4', 'IPv4-Ausgang'],
-  ['ipv6', 'IPv6'],
-  ['dns', 'DNS-Ausgang'],
-];
-const PHASES = ['checks', 'probe', 'resolve', 'download', 'remux', 'verify'];
-const STATUS = { waiting: 'wartet', running: 'läuft', done: 'fertig', failed: 'Fehler', stopped: 'angehalten' };
+// Prüfpunkte, Phasen, Status-Texte und Grenzen kommen vom Server (st.meta), damit sie nur in ui.py stehen.
 
-// ---- Zugriffstoken: kommt einmalig im #-Teil der Adresse (wird nie an den Server geschickt)
+// Zeiten und Abfragetakt
+const CALCULATING_AFTER_SEC = 12;   // Titelsuche: erst danach „wird berechnet …“ statt „–“
+const POLL_BUSY_MS = 700;           // Abfrage, solange ein Vorgang läuft
+const POLL_IDLE_MS = 1500;          // Abfrage im Leerlauf
+
+// ---- Zugriffstoken: kommt einmalig im #-Teil der Adresse (der geht nie an den Server); danach nur als Kopfzeile X-QSGrab-Token
 let token = '';
 try { token = sessionStorage.getItem('qsgrab-token') || ''; } catch (e) { /* privater Modus */ }
 const hash = new URLSearchParams(location.hash.slice(1));
@@ -78,11 +74,8 @@ function bytes(n, decimals = 1) {
   return n.toFixed(i ? decimals : 0).replace('.', ',') + ' ' + u[i];
 }
 
-function unit(s) {
-  // yt-dlp: "212.40MiB" -> "212,40 MB"
-  return s ? s.replace(/^([\d.]+)/, (m) => m.replace('.', ',') + ' ').replace(/([KMGT])iB/, '$1B') : '–';
-}
-
+// Einlesen der yt-dlp-Angaben: KB/MB/GB dezimal (1000), KiB/MiB/... binär (1024).
+// Die Anzeige (bytes(), speedText()) rechnet dagegen mit 1024 und schreibt „KB/MB“ – bewusst so belassen.
 const UNITS = { B: 1, KB: 1e3, MB: 1e6, GB: 1e9, KIB: 1024, MIB: 1024 ** 2, GIB: 1024 ** 3, TIB: 1024 ** 4 };
 function parseSize(s) {
   // "6.21MiB/s" oder "212.40MiB" -> Bytes; unbekannt -> null
@@ -100,44 +93,65 @@ function speedText(bytesPerSec) {
   return Math.round(bytesPerSec) + ' B/s';
 }
 
+// Was die Sicherheitsprüfung vor Titelsuche/Größenabfrage gerade tut: Hinweis des nächsten Prüfpunkts
+// nach dem zuletzt fertigen (unbekannt/noch keiner -> erster Prüfpunkt).
+function nextCheckHint(meta, step) {
+  const i = meta.checks.findIndex((c) => c.key === step);
+  return i === meta.checks.length - 1 ? meta.checks_done_hint : meta.checks[i + 1].hint;
+}
 // Was gerade passiert, solange noch nichts heruntergeladen wird.
-const HINTS = {
-  checks: 'Sicherheitsprüfung läuft (VPN, Firewall, IP, DNS) – der Download beginnt gleich.',
-  probe: 'Kurzer Probe-Download zur Kontrolle der Verbindung – der Download beginnt gleich.',
-  resolve: 'Video wird gesucht – der Download beginnt gleich.',
-  download: 'Verbindung zum Video wird aufgebaut …',
-  remux: 'Video wird fertiggestellt (ohne Qualitätsverlust) …',
-  verify: 'Abschlussprüfung der Verbindung …',
-};
-// Was die Sicherheitsprüfung vor Titelsuche/Größenabfrage gerade tut (nach dem zuletzt fertigen Prüfpunkt).
-const NEXT_CHECK = {
-  '': 'Sicherheitsprüfung: VPN-Adapter wird geprüft …',
-  vpn: 'Sicherheitsprüfung: Netzsperre (Firewall) wird geprüft …',
-  firewall: 'Sicherheitsprüfung: Selbsttest der Netzsperre …',
-  selftest: 'Sicherheitsprüfung: IPv4-Ausgang wird geprüft …',
-  ipv4: 'Sicherheitsprüfung: IPv6 wird geprüft …',
-  ipv6: 'Sicherheitsprüfung: DNS-Ausgang wird geprüft …',
-  dns: 'Sicherheitsprüfung bestanden – es geht gleich los …',
-};
-function hintText(st, cur, hasProgress) {
-  if (st.mode === 'preview' && !cur.preview_started) return NEXT_CHECK[cur.check_step || ''] || NEXT_CHECK[''];
+function hintText(st, d) {
+  const cur = d.cur;
+  if (st.mode === 'preview' && !cur.preview_started) return nextCheckHint(st.meta, cur.check_step || '');
   if (st.mode === 'check') return 'Sicherheitsprüfung läuft (VPN, Firewall, IP, DNS) …';
   if (st.mode === 'preview') return 'Titel werden gesucht – vorher und zwischendurch wird die Verbindung geprüft. Noch kein Download.';
-  if (cur.phase === 'download' && hasProgress) return '';
-  return HINTS[cur.phase] || '';
+  if (cur.phase === 'download' && d.pct !== null) return '';
+  const phase = st.meta.phases.find((p) => p.key === cur.phase);
+  return phase ? phase.hint : '';
 }
 
 function duration(sec) {
   sec = Math.max(0, Math.round(sec));
   const h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60), s = sec % 60;
-  return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(s).padStart(2, '0');
+  return (h ? h + ':' + pad(m) : m) + ':' + pad(s);
+}
+
+// ---- Zustand einmal ableiten, dann zeichnen
+// Zuletzt gemessene Durchschnittsgeschwindigkeit (für Gesamt-Restzeit und Knopftext, auch zwischen Downloads).
+let lastSpeed = null;
+function derive(st) {
+  const cur = st.current;
+  const d = { cur, previewing: st.mode === 'preview', downloading: false, pct: null, avg: null, totalBytes: null,
+    waiting: st.queue.filter((x) => x.status === 'waiting'), running: st.queue.find((x) => x.status === 'running') };
+  if (!cur) return d;
+  d.downloading = st.mode === 'download' && cur.phase === 'download';
+  d.pct = d.downloading && typeof cur.percent === 'number' ? cur.percent : null;
+  d.totalBytes = parseSize(cur.total);
+  const since = cur.download_started ? serverNow() - cur.download_started : 0;
+  d.avg = d.downloading && d.pct !== null && d.totalBytes && since > 1 ? d.totalBytes * d.pct / 100 / since : null;
+  if (d.avg) lastSpeed = d.avg;
+  return d;
 }
 
 // ---- Darstellung
+let metaApplied = false;
+function applyMeta(meta) {
+  // Einmalig: Phasenleiste und Namensgrenze aus den Server-Konstanten.
+  if (metaApplied) return;
+  metaApplied = true;
+  const steps = $('steps');
+  for (const p of meta.phases) {
+    const li = el('li', '', p.label);
+    li.dataset.phase = p.key;
+    steps.append(li);
+  }
+  $('name').maxLength = meta.limits.name;
+}
+
 function renderChecks(st) {
   const ul = $('checks');
   ul.replaceChildren();
-  for (const [key, label] of CHECKS) {
+  for (const { key, label } of st.meta.checks) {
     const c = st.checks[key];
     const li = el('li', c && c.ok === false ? 'problem' : '');
     const dot = el('span', 'dot');
@@ -173,31 +187,29 @@ function renderBanner(st) {
   $('banner-text').textContent = st.banner.text;
 }
 
-function renderNow(st) {
-  const cur = st.current;
+function renderNow(st, d) {
+  const cur = d.cur;
   $('now-empty').hidden = !!cur;
   $('now').hidden = !cur;
   $('now-mode').textContent = st.mode === 'download' ? 'Download' : st.mode === 'check' ? 'Sicherheitsprüfung'
     : st.mode === 'preview' ? 'Titelsuche' + (st.start_pending ? ' – Download startet danach' : '') : '';
   if (!cur) return;
   $('now-title').textContent = cur.title || (st.mode === 'check' ? 'Sicherheitsprüfung' : 'Titel wird ermittelt …');
-  const idx = PHASES.indexOf(cur.phase);
+  const phases = st.meta.phases.map((p) => p.key);
+  const idx = phases.indexOf(cur.phase);
   $('steps').hidden = st.mode === 'preview';
   for (const li of $('steps').children) {
-    const i = PHASES.indexOf(li.dataset.phase);
+    const i = phases.indexOf(li.dataset.phase);
     li.className = i < idx ? 'done' : i === idx ? 'active' : '';
     li.hidden = st.mode === 'check' && i > 0;
   }
   const bar = $('bar');
   // Titelsuche: kein Balken, nur Restzeit und Laufzeit (das drehende Rädchen zeigt, dass es läuft).
-  const previewing = st.mode === 'preview';
+  const previewing = d.previewing;
   bar.hidden = previewing;
   for (const id of ['st-pct', 'st-speed', 'st-avg']) $(id).parentElement.hidden = previewing;
-  $('st-total').parentElement.hidden = true;   // Größe steht beim Titel in der Warteschlange
   $('st-elapsed').parentElement.style.order = previewing ? '-1' : '';
-  // Prozent nur beim echten Download (nicht bei Titelsuche oder Prüfungen).
-  const downloading = st.mode === 'download' && cur.phase === 'download';
-  const pct = downloading && typeof cur.percent === 'number' ? cur.percent : null;
+  const pct = d.pct;
   if (pct !== null) {
     bar.classList.remove('indeterminate');
     $('bar-fill').style.width = pct.toFixed(1) + '%';
@@ -207,27 +219,21 @@ function renderNow(st) {
     $('bar-fill').style.width = '';
     bar.removeAttribute('aria-valuenow');
   }
-  const hint = hintText(st, cur, pct !== null);
+  const hint = hintText(st, d);
   $('now-hint').hidden = !hint;
   $('now-hint-text').textContent = hint;
   $('st-pct').textContent = pct !== null ? pct.toFixed(1).replace('.', ',') + ' %' : '–';
-  $('st-speed').textContent = downloading ? speedText(parseSize(cur.speed)) : '–';
-  // Durchschnitt dieses Videos: geladene Bytes / Zeit seit Beginn des Downloads.
-  const totalBytes = parseSize(cur.total);
-  const since = cur.download_started ? serverNow() - cur.download_started : 0;
-  const avg = downloading && pct !== null && totalBytes && since > 1 ? totalBytes * pct / 100 / since : null;
-  if (avg) lastSpeed = avg;
-  $('st-avg').textContent = avg ? speedText(avg) : '–';
+  $('st-speed').textContent = d.downloading ? speedText(parseSize(cur.speed)) : '–';
+  $('st-avg').textContent = d.avg ? speedText(d.avg) : '–';
   if (previewing) {
     // erst ab dem zweiten fertigen Link berechnet (Server), hier nur heruntergezählt
     const left = typeof cur.eta_seconds === 'number' ? cur.eta_seconds - (serverNow() - cur.eta_at) : null;
-    const calculating = typeof cur.preview_started === 'number' && serverNow() - cur.preview_started >= 12;
+    const calculating = typeof cur.preview_started === 'number' && serverNow() - cur.preview_started >= CALCULATING_AFTER_SEC;
     $('st-eta').textContent = left === null ? (calculating ? 'wird berechnet …' : '–')
       : left > 0 ? 'ca. ' + duration(left) : 'gleich fertig';
   } else {
     $('st-eta').textContent = cur.phase === 'download' && cur.eta ? cur.eta : '–';
   }
-  $('st-total').textContent = cur.total ? unit(cur.total) : '–';
   $('st-elapsed').textContent = cur.started ? duration(serverNow() - cur.started) : '–';
 }
 
@@ -235,7 +241,6 @@ function renderNow(st) {
 let drag = null;   // { li, id } solange gezogen wird; dann wird die Liste nicht neu aufgebaut
 
 function moveTo(id, li) {
-  // Neue Position = vor dem naechsten Eintrag (oder ans Ende).
   const next = li.nextElementSibling;
   return act('/api/queue/move', { id, before: next ? next.dataset.id : null });
 }
@@ -254,7 +259,7 @@ function startDrag(e, li, id) {
     if (ev.pointerId !== pid) return;
     ev.preventDefault();
     const r = ul.getBoundingClientRect();
-    if (ev.clientY < r.top + 24) ul.scrollTop -= 12;          // Liste mitscrollen
+    if (ev.clientY < r.top + 24) ul.scrollTop -= 12;
     else if (ev.clientY > r.bottom - 24) ul.scrollTop += 12;
     for (const other of ul.children) {
       if (other === li) continue;
@@ -284,7 +289,6 @@ function startDrag(e, li, id) {
 }
 
 function keyMove(e, li, id) {
-  // Tastatur: Griff fokussieren, Pfeil hoch/runter verschiebt um eine Stelle.
   const ul = li.parentElement;
   if (e.key === 'ArrowUp' && li.previousElementSibling) ul.insertBefore(li, li.previousElementSibling);
   else if (e.key === 'ArrowDown' && li.nextElementSibling) ul.insertBefore(li, li.nextElementSibling.nextElementSibling);
@@ -295,9 +299,8 @@ function keyMove(e, li, id) {
 }
 
 function renderQueue(st) {
-  if (drag) return;   // waehrend des Ziehens nicht neu zeichnen
+  if (drag) return;
   const ul = $('queue');
-  // Fokus auf einem Griff ueber das Neuzeichnen retten (Tastaturbedienung)
   const active = document.activeElement;
   const focusId = active && active.classList.contains('grip') && ul.contains(active) ? active.closest('li').dataset.id : null;
   ul.replaceChildren();
@@ -322,7 +325,7 @@ function renderQueue(st) {
     const main = el('div', 'item-main');
     const ts = item.title_state;
     const searching = item.status === 'waiting' && (ts === 'running' || ts === 'queued' || ts === 'pending');
-    const shown = item.name || item.title;
+    const shown = item.display;   // eigener Name oder gefundener Titel (berechnet der Server)
     const head = el('div', 'item-title' + (shown ? '' : ' item-searching'),
       shown || (ts === 'running' ? 'Titel wird gesucht …'
         : ts === 'queued' ? 'Wartet auf Titelsuche …'
@@ -339,7 +342,7 @@ function renderQueue(st) {
     main.append(sub);
     if (item.error) main.append(el('div', 'item-err', (item.error.ident ? item.error.ident + ': ' : '') + item.error.message));
     const actions = el('div', 'item-actions');
-    const label = searching ? 'Titelsuche' : item.status === 'waiting' && ts === 'ok' ? 'bereit' : (STATUS[item.status] || item.status);
+    const label = searching ? 'Titelsuche' : item.status === 'waiting' && ts === 'ok' ? 'bereit' : (st.meta.status[item.status] || item.status);
     actions.append(el('span', 'tag ' + (searching ? 'searching' : item.status === 'waiting' && ts === 'ok' ? 'ready' : item.status), label));
     if (item.status === 'failed' || item.status === 'stopped') {
       const r = el('button', 'btn ghost small-btn', 'Wiederholen');
@@ -367,7 +370,6 @@ function renderHistory(st) {
   for (const f of st.history) {
     const li = el('li');
     const main = el('div', 'item-main');
-    // Fertige Videos bewusst schlicht: kleiner, nicht fett, Uhrzeit ohne Sekunden, Größe ohne Nachkommastelle
     main.append(el('div', 'item-title', f.name), el('div', 'item-sub', clock(f.time, false)));
     li.append(main, el('span', 'tag', bytes(f.size, 0)));
     ul.append(li);
@@ -382,11 +384,8 @@ function renderLog(st) {
   if (atBottom) pre.scrollTop = pre.scrollHeight;
 }
 
-// Gesamt-Restzeit der Warteschlange: verbleibende Bytes / aktuelle (sonst zuletzt gemessene) Geschwindigkeit.
-let lastSpeed = null;
-function renderTotal(st) {
-  const waiting = st.queue.filter((x) => x.status === 'waiting');
-  const running = st.queue.find((x) => x.status === 'running');
+function renderTotal(st, d) {
+  const { waiting, running } = d;
   $('btn-sizes').hidden = st.sizes_enabled || !waiting.length;
   $('btn-sizes').textContent = lastSpeed ? 'Gesamtlaufzeit berechnen' : 'Gesamtgröße ermitteln';
   const out = $('queue-total');
@@ -397,20 +396,11 @@ function renderTotal(st) {
     else if (x.size_state === 'unknown') unknown++;
     else pending++;
   }
-  const cur = st.current;
-  let speed = null;
   if (running) {
-    const size = parseSize(cur && cur.total);
-    const pct = cur && typeof cur.percent === 'number' ? cur.percent : null;
-    if (st.mode === 'download' && cur.phase === 'download' && size && pct !== null) {
-      total += size * (1 - pct / 100);
-      const since = cur.download_started ? serverNow() - cur.download_started : 0;
-      if (since > 1 && pct > 0) speed = size * pct / 100 / since;
-    } else if (running.expected_size) {
-      total += running.expected_size;
-    }
+    if (d.downloading && d.totalBytes && d.pct !== null) total += d.totalBytes * (1 - d.pct / 100);
+    else if (running.expected_size) total += running.expected_size;
   }
-  speed = speed || lastSpeed;
+  const speed = (running && d.avg) || lastSpeed;
   out.hidden = false;
   if (pending) {
     // Größenabfrage läuft parallel; Links ohne Titel kommen direkt nach ihrer Titelsuche dran.
@@ -421,7 +411,7 @@ function renderTotal(st) {
     return;
   }
   if (!total) {
-    out.textContent = pending ? 'Größen werden ermittelt …' : 'Größe unbekannt';
+    out.textContent = 'Größe unbekannt';
     out.title = '';
     return;
   }
@@ -429,9 +419,8 @@ function renderTotal(st) {
   const mins = Math.max(1, Math.round(sec / 60));
   const span = mins >= 60 ? Math.floor(mins / 60) + ':' + pad(mins % 60) + ' h' : mins + ' Min.';
   out.textContent = (speed ? 'Gesamt: ca. ' + span + ' · ' : 'Gesamt: ') + bytes(total)
-    + (speed ? '' : ' – Zeit ab Downloadstart') + (pending ? ' …' : unknown ? ' +?' : '');
+    + (speed ? '' : ' – Zeit ab Downloadstart') + (unknown ? ' +?' : '');
   out.title = (speed ? 'Geschätzt mit der aktuellen Geschwindigkeit (' + speedText(speed) + ').' : 'Die Zeit erscheint, sobald ein Download läuft.')
-    + (pending ? ' Weitere Größen werden noch ermittelt.' : '')
     + (unknown ? ' ' + unknown + ' Größe(n) unbekannt, nicht eingerechnet.' : '');
 }
 
@@ -439,8 +428,8 @@ function renderControls(st) {
   const busy = st.mode !== 'idle';
   const waiting = st.queue.some((x) => x.status === 'waiting');
   const previewing = st.mode === 'preview';
+  // Während der Titelsuche bleibt „Start“ bedienbar: Downloads starten dann automatisch danach.
   $('btn-start').disabled = !waiting || (busy && !previewing) || (previewing && st.start_pending);
-  $('btn-start').textContent = 'Start';   // waehrend der Titelsuche: Downloads starten automatisch danach
   $('btn-check').disabled = busy;
   $('btn-stop').hidden = !busy && !st.size_job;
   $('browser-info').textContent = 'Browser-Einstellung: ' + st.browser;
@@ -451,17 +440,19 @@ function render(st) {
   lastState = st;
   if (typeof st.tz_offset === 'number') tzOffset = st.tz_offset;
   if (typeof st.server_time === 'number') clockSkew = st.server_time - Date.now() / 1000;
+  applyMeta(st.meta);
+  const d = derive(st);
   renderChecks(st);
   renderBanner(st);
-  renderNow(st);
+  renderNow(st, d);
   renderQueue(st);
   renderHistory(st);
   renderLog(st);
   renderControls(st);
-  renderTotal(st);
+  renderTotal(st, d);
 }
 
-// ---- Abfrage im Sekundentakt
+// ---- Abfrage: alle POLL_BUSY_MS, solange ein Vorgang läuft, sonst alle POLL_IDLE_MS
 let failures = 0;
 async function poll() {
   try {
@@ -472,7 +463,7 @@ async function poll() {
     failures++;
     if (failures >= 3) $('offline').hidden = false;
   }
-  setTimeout(poll, lastState && lastState.mode !== 'idle' ? 700 : 1500);
+  setTimeout(poll, lastState && lastState.mode !== 'idle' ? POLL_BUSY_MS : POLL_IDLE_MS);
 }
 
 function message(text, cls) {
@@ -481,9 +472,11 @@ function message(text, cls) {
   m.className = 'small ' + (cls || '');
 }
 
-async function act(path, body) {
+// Knopfdruck: Anfrage schicken, bei Erfolg optional done(Antwort), dann sofort neu zeichnen.
+async function act(path, body, done) {
   try {
-    await api(path, body || {});
+    const data = await api(path, body || {});
+    if (done) done(data);
     render(await api('/api/state'));
     return true;
   } catch (e) {
@@ -498,17 +491,15 @@ function setup() {
     $('offline').textContent = 'Kein Zugriffsschlüssel. Bitte Quite Safe Grab über „qsgrab.cmd ui“ starten.';
     return;
   }
-  $('btn-add').addEventListener('click', async () => {
+  $('btn-add').addEventListener('click', () => {
     const urls = $('urls').value.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
     if (!urls.length) { message('Bitte mindestens einen Link eingeben.', 'bad'); return; }
-    try {
-      const r = await api('/api/queue/add', { urls, name: $('name').value });
+    act('/api/queue/add', { urls, name: $('name').value }, (r) => {
       $('urls').value = '';
       $('name').value = '';
       message(r.added + ' Link(s) hinzugefügt.' + (r.invalid.length ? ' Ungültig: ' + r.invalid.length : ''),
         r.invalid.length ? 'bad' : 'good');
-      render(await api('/api/state'));
-    } catch (e) { message(e.message, 'bad'); }
+    });
   });
   $('btn-start').addEventListener('click', () => { message(''); act('/api/start'); });
   $('btn-check').addEventListener('click', () => { message(''); act('/api/check'); });
